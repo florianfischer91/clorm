@@ -2686,6 +2686,8 @@ class _PredicateMeta(type):
         if not parents:
             dct["_predicate"] = None # what is this for?
             return super().__new__(meta, name, bases, dct)
+        elif len(parents) > 1:
+            raise TypeError("Multiple Predicate sub-class inheritance forbidden")
 
         # Set the _meta attribute and FieldAccessors
         pred_def = _make_predicatedefn(name, dct)
@@ -2707,13 +2709,6 @@ class _PredicateMeta(type):
 
         # Set a BaseField sub-class that converts to/from cls instances
         setattr(new_cls, "_field", _define_field_for_predicate(new_cls))
-
-        # this should be move to predicate class?
-        parents = [ b for b in bases if issubclass(b, Predicate) ]
-        if len(parents) == 0:
-            raise TypeError("Internal bug: number of Predicate bases is 0!")
-        if len(parents) > 1:
-            raise TypeError("Multiple Predicate sub-class inheritance forbidden")
 
         return new_cls
 
