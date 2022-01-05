@@ -24,7 +24,7 @@ import functools
 import itertools
 import sys
 import clingo
-import typing
+from typing import TYPE_CHECKING, ClassVar, Dict, TypeVar
 import re
 import uuid
 
@@ -2631,7 +2631,7 @@ def _make_predicatedefn(class_name, dct) -> PredicateDefn:
 
     # Create the "sign" attribute - must be assigned a parent in the metaclass
     # __init__() call.
-    dct["sign"] = SignAccessor()
+    # dct["sign"] = SignAccessor()
 
     # Now create the PredicateDefn object
     return PredicateDefn(name=pname,field_accessors=fas, anon=anon,sign=sign)
@@ -2682,45 +2682,40 @@ class _PredicateMeta(type):
         # Make sure we use slots
         dct["__slots__"] = ('_field_values','_sign', '_raw', '_hash')
 
-        if name == "Predicate":
-            dct["_predicate"] = None
-            return super(_PredicateMeta, meta).__new__(meta, name, bases, dct)
+        parents = [b for b in bases if isinstance(b, _PredicateMeta)]
+        if not parents:
+            dct["_predicate"] = None # what is this for?
+            return super().__new__(meta, name, bases, dct)
 
-        # Create the metadata AND populate dct - the class dict (including the fields)
+        # Set the _meta attribute and FieldAccessors
+        pred_def = _make_predicatedefn(name, dct)
+        dct["_meta"] = pred_def
 
-        # Set the _meta attribute and constuctor
-        dct["_meta"] = _make_predicatedefn(name, dct)
-        dct["_field"] = _lateinit("{}._field".format(name))
+        # Create the "sign" attribute - must be assigned a parent after creating the cls
+        sign = SignAccessor()
+        dct["sign"] = sign
 
+        new_cls = super().__new__(meta, name, bases, dct)
+
+        # set the parent for PredicateDefinition and FieldAccessors
+        pred_def.parent = new_cls
+        for field in pred_def:
+            fa = dct[field.name]
+            fa.parent = new_cls
+        pred_def.indexes=_get_paths_for_default_indexed_fields(new_cls)
+        sign.parent = new_cls
+
+        # Set a BaseField sub-class that converts to/from cls instances
+        setattr(new_cls, "_field", _define_field_for_predicate(new_cls))
+
+        # this should be move to predicate class?
         parents = [ b for b in bases if issubclass(b, Predicate) ]
         if len(parents) == 0:
             raise TypeError("Internal bug: number of Predicate bases is 0!")
         if len(parents) > 1:
             raise TypeError("Multiple Predicate sub-class inheritance forbidden")
 
-        return super(_PredicateMeta, meta).__new__(meta, name, bases, dct)
-
-    def __init__(cls, name, bases, dct):
-        if name == "Predicate":
-            return super(_PredicateMeta, cls).__init__(name, bases, dct)
-
-        # Set a BaseField sub-class that converts to/from cls instances
-        dct["_field"].assign(_define_field_for_predicate(cls))
-
-        md = dct["_meta"]
-        # The property attribute for each field can only be created in __new__
-        # but the class itself does not get created until after __new__. Hence
-        # we have to set the pointer within the field back to the this class
-        # here. Similar argument applies for generating the field indexes
-        md.parent = cls
-        for field in md:
-            dct[field.name].parent = cls
-        md.indexes=_get_paths_for_default_indexed_fields(cls)
-
-        # Assign the parent for the SignAccessor
-        dct["sign"].parent = cls
-
-        return super(_PredicateMeta, cls).__init__(name, bases, dct)
+        return new_cls
 
     # A Predicate subclass is an instance of this meta class. So to
     # provide querying of a Predicate subclass Blah by a positional
@@ -2775,10 +2770,14 @@ class Predicate(object, metaclass=_PredicateMeta):
          - named parameters corresponding to the field names.
 
     """
-    if typing.TYPE_CHECKING:
+    if TYPE_CHECKING:
         # populated by the metaclass, defined here to help IDEs only
-        _meta: typing.ClassVar[PredicateDefn]
-        _field: typing.ClassVar[BaseField]
+        _field_values: Dict[str, BaseField] = {}
+        _sign : SignAccessor = None
+        _raw: clingo.Symbol = None
+        _hash: int
+        _field: ClassVar[BaseField]
+        _meta: ClassVar[PredicateDefn]
 
     #--------------------------------------------------------------------------
     #
