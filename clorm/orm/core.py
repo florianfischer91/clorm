@@ -2333,7 +2333,6 @@ def _preprocess_field_value(field_defn, v):
 def _predicate_values_from_kwargs(self, **kwargs) -> Tuple[List[Any], bool]:
     argnum=0
     field_values = []
-    clingoargs = []
     for f in self.meta:
         if f.name in kwargs:
             v= _preprocess_field_value(f.defn, kwargs[f.name])
@@ -2348,7 +2347,6 @@ def _predicate_values_from_kwargs(self, **kwargs) -> Tuple[List[Any], bool]:
 
         # Set the value for the field
         field_values.append(v)
-        clingoargs.append(f.defn.pytocl(v))
 
     # Calculate the sign of the literal and check that it matches the allowed values
     if "sign" in kwargs:
