@@ -2303,26 +2303,6 @@ class PredicateDefn(object):
     def __iter__(self):
         return iter(self._byidx)
 
-# ------------------------------------------------------------------------------
-# Helper function that performs some data conversion on a value to make it match
-# a field's input. If the value is a tuple and the field definition is a
-# complex-term then it tries to create an instance corresponding to the
-# tuple. Otherwise simply returns the value.
-# ------------------------------------------------------------------------------
-
-def _preprocess_field_value(field_defn, v):
-    predicate_cls = field_defn.complex
-    if not predicate_cls: return v
-    mt = predicate_cls.meta
-    if isinstance(v, predicate_cls): return v
-    if (mt.is_tuple and isinstance(v,Predicate) and v.meta.is_tuple) or \
-       isinstance(v, tuple):
-        if len(v) != len(mt):
-            raise ValueError(("mis-matched arity between field {} (arity {}) and "
-                             " value (arity {})").format(field_defn, len(mt), len(v)))
-        return predicate_cls(*v)
-    else:
-        return v
 
 # ------------------------------------------------------------------------------
 # Helper functions for PredicateMeta class to create a Predicate
@@ -2334,19 +2314,33 @@ def _predicate_values_from_kwargs(self, **kwargs) -> Tuple[List[Any], bool]:
     argnum=0
     field_values = []
     for f in self.meta:
-        if f.name in kwargs:
-            v= _preprocess_field_value(f.defn, kwargs[f.name])
-            argnum += 1
-        elif f.defn.has_default:
-            # Note: must be careful to get the default value only once in case
-            # it is a function with side-effects.
-            v = _preprocess_field_value(f.defn, f.defn.default)
-        else:
-            raise TypeError(("Missing argument for field \"{}\" (which has no "
-                             "default value)").format(f.name))
+        argnum+=1
+        value = kwargs.get(f.name, MISSING)
+        if value is MISSING:
+            if f.defn.has_default:
+                # Note: must be careful to get the default value only once in case
+                # it is a function with side-effects.
+                value = f.defn.default
+                argnum-=1
+            else:
+                raise TypeError(("Missing argument for field \"{}\" (which has no "
+                                "default value)").format(f.name))
+        
+        # If the value is a tuple and the field definition is a
+        # complex-term then it tries to create an instance corresponding to the
+        # tuple. Otherwise we use the value as is.
+        predicate_cls = f.defn.complex
+        if predicate_cls and not isinstance(value, predicate_cls):
+            mt = predicate_cls.meta
+            if isinstance(value, tuple) or \
+               (mt.is_tuple and isinstance(value,Predicate) and value.meta.is_tuple):
+                if len(value) != len(mt):
+                    raise ValueError(("mis-matched arity between field {} (arity {}) and "
+                                    " value (arity {})").format(f.defn, len(mt), len(value)))
+                value = predicate_cls(*value)
 
         # Set the value for the field
-        field_values.append(v)
+        field_values.append(value)
 
     # Calculate the sign of the literal and check that it matches the allowed values
     if "sign" in kwargs:
