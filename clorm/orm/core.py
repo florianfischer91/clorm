@@ -24,7 +24,7 @@ import functools
 import itertools
 import sys
 import clingo
-from typing import TYPE_CHECKING, ClassVar, Dict, Optional, Tuple, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, Tuple, TypeVar
 import re
 import uuid
 
@@ -2329,8 +2329,8 @@ def _preprocess_field_value(field_defn, v):
 # class constructor.
 # ------------------------------------------------------------------------------
 
-# Construct a Predicate via the field keywords
-def _predicate_init_by_keyword_values(self, **kwargs):
+# validate and get values for a predicate from given kwargs
+def _predicate_values_from_kwargs(self, **kwargs) -> Tuple[List[Any], bool]:
     argnum=0
     field_values = []
     clingoargs = []
@@ -2350,9 +2350,6 @@ def _predicate_init_by_keyword_values(self, **kwargs):
         field_values.append(v)
         clingoargs.append(f.defn.pytocl(v))
 
-    # Turn it into a tuple
-    self._field_values = tuple(field_values)
-
     # Calculate the sign of the literal and check that it matches the allowed values
     if "sign" in kwargs:
         sign = bool(kwargs["sign"])
@@ -2369,40 +2366,9 @@ def _predicate_init_by_keyword_values(self, **kwargs):
         if sign != self.meta.sign:
             raise ValueError(("Predicate {} is defined to only allow {} signed "
                               "instances").format(self.__class__, self.meta.sign))
-    # Assign the sign
-    self._sign = sign
 
-    # Create the raw clingo.Symbol object
-    self._raw = None
+    return field_values, sign
 
-# Construct a Predicate using keyword arguments
-def _predicate_init_by_positional_values(self, *args, **kwargs):
-    argc = len(args)
-    arity = len(self.meta)
-    if argc != arity:
-        raise ValueError("Expected {} arguments but {} given".format(argc,arity))
-
-    clingoargs = []
-    self._field_values = []
-    for f in self.meta:
-        v = _preprocess_field_value(f.defn, args[f.index])
-        self._field_values.append(v)
-        clingoargs.append(f.defn.pytocl(v))
-
-    # Turn it into a tuple
-    self._field_values = tuple(self._field_values)
-
-    # Calculate the sign of the literal and check that it matches the allowed values
-    sign = bool(kwargs["sign"]) if "sign" in kwargs else True
-    if self.meta.sign is not None and sign != self.meta.sign:
-        raise ValueError(("Predicate {} is defined to only allow {} "
-                          "instances").format(type(self).__name__, self.meta.sign))
-
-    # Assign the sign
-    self._sign = sign
-
-    # Create the raw clingo.Symbol object
-    self._raw = None
 
 #------------------------------------------------------------------------------
 # Metaclass constructor support functions to create the fields
@@ -2743,9 +2709,18 @@ class Predicate(object, metaclass=_PredicateMeta):
                 raise ValueError(("Invalid Predicate initialisation: only \"sign\" is a "
                                  "valid keyword argument when combined with positional "
                                   "arguments: {}").format(kwargs))
-            _predicate_init_by_positional_values(self, *args,**kwargs)
-        else:
-            _predicate_init_by_keyword_values(self, **kwargs)
+            argc, arity = len(args), len(self.meta)
+            if argc != arity:
+                raise ValueError("Expected {} arguments but {} given".format(argc,arity))
+            kwargs.update({f.name: args[f.index] for f in self.meta})
+
+        field_values, sign = _predicate_values_from_kwargs(self, **kwargs)
+        # Turn it into a tuple
+        self._field_values = tuple(field_values)
+        # Assign the sign
+        self._sign = sign
+        # Create the raw clingo.Symbol object
+        self._raw = None
 
         # Force the hash to be calculated and cached.
         self._hash = None
