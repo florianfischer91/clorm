@@ -109,7 +109,7 @@ def _format_commented(fm: FactMap, out):
             args = []
             for pp in p:
                 complex = pp.meta.field.complex
-                args.append(pp._pathseq[1] if not complex else build_signature(complex))
+                args.append(pp._attr_names[0] if not complex else build_signature(complex))
             return f"{p.meta.name}({','.join(args)})"
 
         lines = [ "Predicate signature:",

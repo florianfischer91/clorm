@@ -24,7 +24,7 @@ import functools
 import itertools
 import sys
 import clingo
-from typing import TYPE_CHECKING, ClassVar, Dict, TypeVar
+from typing import TYPE_CHECKING, ClassVar, Dict, Optional, Tuple, TypeVar
 import re
 import uuid
 
@@ -478,9 +478,10 @@ def notin_(path, seq):
 #
 # ------------------------------------------------------------------------------
 
-def _define_predicate_path_subclass(predicate_class: 'Predicate') -> Type['PredicatePath']:
+def _define_predicate_path_subclass(predicate_class: 'Predicate', predicate_def) -> Type['PredicatePath']:
     class_name = predicate_class.__name__ + "_PredicatePath"
-    return type(class_name, (PredicatePath,), { "_predicate_class" : predicate_class })
+    return type(class_name, (PredicatePath,), { "_predicate_class" : predicate_class,
+    "_predicate_defn": predicate_def })
 
 class _PredicatePathMeta(type):
     def __new__(meta, name, bases, dct):
@@ -502,16 +503,17 @@ class _PredicatePathMeta(type):
         def _make_lookup_functor(key):
             return lambda self: self._subpath[key]
 
+        pred_def: PredicateDefn = dct.pop("_predicate_defn")
         # Create an attribute for each predicate class field that returns an instance
         # of a pathbuilder for each attribute
-        for fa in predicate_class.meta:
+        for fa in pred_def:
             dct[fa.name] = property(_make_lookup_functor(fa.name))
             ct_class = fa.defn.complex
             if ct_class: ct_classes[fa.name] = ct_class
 
         # If the corresponding Predicate is not a tuple then we need to create a
         # "sign" attribute.
-        if not predicate_class.meta.is_tuple:
+        if not pred_def.is_tuple:
             dct["sign"] = property(_make_lookup_functor("sign"))
 
         # The appropriate fields have been created
@@ -556,6 +558,8 @@ class PredicatePath(object, metaclass=_PredicatePathMeta):
     this property.
 
     '''
+    if TYPE_CHECKING:
+        _complexterm_classes: ClassVar['Predicate']
 
     #--------------------------------------------------------------------------
     # An inner class that provides a hashable variant of a path. Because
@@ -567,22 +571,22 @@ class PredicatePath(object, metaclass=_PredicatePathMeta):
     # return the original (non-hashable) path.
     # --------------------------------------------------------------------------
     class Hashable(object):
-        def __init__(self, path):
+        def __init__(self, path: 'PredicatePath'):
             self._path = path
-            ps = self._path._pathseq
-            base = (ps[0].predicate.__name__,ps[0].name)
-            self._ordered = (base, ps[:1])
+            self._ps = tuple([self._path._path_identity] + list(self._path._attr_names))
+            base = (self._ps[0].predicate.__name__,self._ps[0].name)
+            self._ordered = (base,[self._ps[:1]])
 
         @property
         def path(self):
             return self._path
 
         def __hash__(self):
-            return hash(self._path._pathseq)
+            return hash(self._ps)
 
         def __eq__(self, other):
             if not isinstance(other, self.__class__): return NotImplemented
-            return self._path._pathseq == other._path._pathseq
+            return self._ps == other._ps
 
         def __ne__(self, other):
             result = self.__eq__(other)
@@ -649,41 +653,41 @@ class PredicatePath(object, metaclass=_PredicatePathMeta):
         # --------------------------------------------------------------------------
         @property
         def is_root(self):
-            return len(self._parent._pathseq) == 1
+            return not self._parent._attr_names
 
         # --------------------------------------------------------------------------
         # Is this a path corresponding to a "sign" attribute
         # --------------------------------------------------------------------------
         @property
         def is_sign(self):
-            return self._parent._pathseq[-1] == "sign"
+            return self._parent._attr_names[-1] == "sign"
 
         # --------------------------------------------------------------------------
         # Return the root path (ie. the path corresponds to a predicate definition)
         # --------------------------------------------------------------------------
         @property
         def root(self):
-            if len(self._parent._pathseq) == 1: return self._parent
-            pi = self._parent._pathseq[0]
+            if not self._parent._attr_names: return self._parent
+            pi = self._parent._path_identity
             if pi.predicate.__name__ == pi.name: return self.predicate.meta.path
-            return pi.predicate.meta.path_class([pi])
+            return pi.predicate.meta.path_class(pi, self.predicate.meta)
 
         # --------------------------------------------------------------------------
         # Return the Predicate sub-class that is the root of this path
         # --------------------------------------------------------------------------
         @property
         def predicate(self):
-            return self._parent._pathseq[0].predicate
+            return self._parent._path_identity.predicate
 
         # --------------------------------------------------------------------------
         # Return a dealiased version of this path
         # --------------------------------------------------------------------------
         @property
         def dealiased(self):
-            pi = self._parent._pathseq[0]
+            pi = self._parent._path_identity
             if pi.predicate.__name__ == pi.name: return self._parent
             dealised = pi.predicate.meta.path
-            for key in self._parent._pathseq[1:]:
+            for key in self._parent._attr_names:
                 dealised = dealised[key]
             return dealised
 
@@ -712,9 +716,9 @@ class PredicatePath(object, metaclass=_PredicatePathMeta):
         # Resolve (extract the component) the path wrt a fact
         # --------------------------------------------------------------------------
         def resolve(self, fact):
-            pseq = self._parent._pathseq
-            if type(fact) != pseq[0].predicate:
-                raise TypeError("{} is not of type {}".format(fact, pseq[0]))
+            pseq = self._parent._path_identity
+            if type(fact) != pseq.predicate:
+                raise TypeError("{} is not of type {}".format(fact, pseq))
             return self._parent._attrgetter(fact)
 
     #--------------------------------------------------------------------------
@@ -730,23 +734,26 @@ class PredicatePath(object, metaclass=_PredicatePathMeta):
     # Predicate class and subsequent elements are strings refering to
     # attributes.
     #--------------------------------------------------------------------------
-    def __init__(self, pathseq: List[Union['PathIdentity',str]]):
+    def __init__(self,
+                 path_identity: 'PathIdentity',
+                 predicate_defn: 'PredicateDefn',
+                 attr_names: Optional[Tuple[str,...]]=None):
         self._meta = PredicatePath.Meta(self)
-        self._pathseq = tuple(pathseq)
+        self._path_identity = path_identity
+        self._attr_names = attr_names if attr_names else tuple([])
         self._subpath = {}
         self._allsubpaths = tuple([])
-        self._field = self._get_field()
+        self._field = self._get_field(predicate_defn)
         self._hashable = PredicatePath.Hashable(self)
-        tmp = pathseq[1:]
-        if not tmp: self._attrgetter = lambda x: x
-        else: self._attrgetter = operator.attrgetter(".".join(tmp))
+        if not self._attr_names: self._attrgetter = lambda x: x
+        else: self._attrgetter = operator.attrgetter(".".join(attr_names))
 
 
-        if not pathseq or not isinstance(pathseq[0], PathIdentity) or \
-           not inspect.isclass(pathseq[0].predicate) or \
-           not issubclass(pathseq[0].predicate, Predicate):
+        if not path_identity or not isinstance(path_identity, PathIdentity) or \
+           not inspect.isclass(path_identity.predicate) or \
+           not issubclass(path_identity.predicate, Predicate):
             raise TypeError(("Internal error: invalid base path sequence for "
-                             "predicate path definition: {}").format(pathseq))
+                             "predicate path definition: {}").format(path_identity))
 
         # If this is a leaf path (instance of the base PredicatePath class) then
         # there will be no sub-paths so nothing else to do.
@@ -756,20 +763,23 @@ class PredicatePath(object, metaclass=_PredicatePathMeta):
         # searchable elements. Elements corresponding to non-complex terms will
         # have leaf PredicatePaths while the complex ones will have appropriate
         # sub-classed PredicatePaths.
-        for fa in self._predicate_class.meta:
-            name = fa.name
-            idx = fa.index
+
+        # use predicate definition of the _field, if _field is complex
+        predicate_defn_local = predicate_defn if not (self._field and self._field.complex) else self._field.complex.meta
+
+        for fa in predicate_defn_local:
+            name, idx = fa.name, fa.index
             if name in self._complexterm_classes:
                 path_cls = self._complexterm_classes[name].meta.path_class
             else:
                 path_cls = PredicatePath
-            path = path_cls(list(self._pathseq) + [name])
+            path = path_cls(path_identity, predicate_defn, self._attr_names + (name,))
             self._subpath[name] = path
             self._subpath[idx] = path
 
         # Add the sign if it's not a tuple
-        if not self._predicate_class.meta.is_tuple:
-            self._subpath["sign"] = PredicatePath(list(self._pathseq) + ["sign"])
+        if not predicate_defn.is_tuple:
+            self._subpath["sign"] = PredicatePath(path_identity,predicate_defn, self._attr_names + ("sign",))
 
         # A list of the unique subpaths
         self._allsubpaths = tuple([sp for key,sp in self._subpath.items() \
@@ -778,22 +788,20 @@ class PredicatePath(object, metaclass=_PredicatePathMeta):
     #--------------------------------------------------------------------------
     # Helper function to compute the field of the path (or None if not exists)
     # --------------------------------------------------------------------------
-    def _get_field(self):
-        if len(self._pathseq) <= 1: return None
-        if self._pathseq[-1] == "sign": return None
-        predicate = self._pathseq[0].predicate
-        for name in self._pathseq[1:]:
-            field = predicate.meta[name].defn
-            if field.complex: predicate = field.complex
+    def _get_field(self, predicate_defn):
+        if not self._attr_names: return None
+        if self._attr_names[-1] == "sign": return None
+        for name in self._attr_names:
+            field = predicate_defn[name].defn
+            if field.complex: predicate_defn = field.complex.meta
         return field
 
     #--------------------------------------------------------------------------
     # A PredicatePath instance is a functor that resolves a fact wrt the path
     # --------------------------------------------------------------------------
     def __call__(self, fact):
-        pseq = self._pathseq
-        if type(fact) != pseq[0].predicate:
-            raise TypeError("{} is not of type {}".format(fact, pseq[0]))
+        if type(fact) != self._path_identity.predicate:
+            raise TypeError("{} is not of type {}".format(fact, self._path_identity))
         return self._attrgetter(fact)
 
     #--------------------------------------------------------------------------
@@ -850,10 +858,10 @@ class PredicatePath(object, metaclass=_PredicatePathMeta):
     # --------------------------------------------------------------------------
 
     def __str__(self):
-        def basename(): return self._pathseq[0].name
-        if len(self._pathseq) == 1: return basename()
+        def basename(): return self._path_identity.name
+        if not self._attr_names: return basename()
 
-        tmp = ".".join(self._pathseq[1:])
+        tmp = ".".join(self._attr_names)
         return basename() + "." + tmp
 
     def __repr__(self):
@@ -2006,11 +2014,11 @@ def define_enum_field(parent_field,enum_class,*,name=None):
 # a query).
 # ------------------------------------------------------------------------------
 class FieldAccessor(object):
-    def __init__(self, name, index, defn):
+    def __init__(self, name, index, defn, parent):
         self._name = name
         self._index = index
         self._defn = defn
-        self._parent_cls = None
+        self._parent_cls = parent
 
     @property
     def name(self): return self._name
@@ -2024,12 +2032,6 @@ class FieldAccessor(object):
     @property
     def parent(self): return self._parent_cls
 
-    @parent.setter
-    def parent(self, pc):
-        if self._parent_cls:
-            raise RuntimeError(("Trying to reset the parent for a "
-                                "FieldAccessor doesn't make sense"))
-        self._parent_cls = pc
 
     def __get__(self, instance, owner=None):
         if not instance:
@@ -2054,18 +2056,12 @@ class FieldAccessor(object):
 # ------------------------------------------------------------------------------
 
 class SignAccessor(object):
-    def __init__(self):
-        self._parent_cls = None
+    def __init__(self, parent):
+        self._parent_cls = parent
 
     @property
     def parent(self): return self._parent_cls
 
-    @parent.setter
-    def parent(self, pc):
-        if self._parent_cls:
-            raise RuntimeError(("Trying to reset the parent for a "
-                                "SignAccessor doesn't make sense"))
-        self._parent_cls = pc
 
     def __get__(self, instance, owner=None):
         if not instance:
@@ -2194,7 +2190,7 @@ class PredicateDefn(object):
 
     """
 
-    def __init__(self, name, field_accessors: List[FieldAccessor], anon=False,sign=None):
+    def __init__(self, name, field_accessors: List[FieldAccessor], anon=False, sign=None, parent=None):
         self._name = name
         self._byidx = tuple(field_accessors)
         self._byname = { f.name : f for f in field_accessors }
@@ -2202,7 +2198,9 @@ class PredicateDefn(object):
         self._anon = anon
         self._key2canon = { f.index : f.name for f in field_accessors }
         self._key2canon.update({f.name : f.name for f in field_accessors })
-        self._parent_cls = None
+        self._parent_cls = parent
+        self._path_class = _define_predicate_path_subclass(self._parent_cls, self)
+        self._path = self._path_class(PathIdentity(self._parent_cls,self._parent_cls.__name__), self)
         self._indexed_fields = ()
         self._sign = sign
 
@@ -2266,17 +2264,6 @@ class PredicateDefn(object):
         return self._parent_cls
 
     # Internal property
-    @parent.setter
-    def parent(self, pc: 'Predicate'):
-        if self._parent_cls:
-            raise RuntimeError(("Trying to reset the parent for a "
-                                "PredicateDefn doesn't make sense"))
-        self._parent_cls = pc
-        self._path_class = _define_predicate_path_subclass(pc)
-#        self._path = seq = self._path_class([PathIdentity(pc,pc.__name__)])
-        self._path = self._path_class([PathIdentity(pc,pc.__name__)])
-
-    # Internal property
     @property
     def path(self): return self._path
 
@@ -2298,7 +2285,7 @@ class PredicateDefn(object):
             classname = self._parent_cls.__name__
             num = uuid.uuid4().time_mid
             name = "({}.alias.{})".format(classname,num)
-        return self._path_class([PathIdentity(self._parent_cls,name)])
+        return self._path_class(PathIdentity(self._parent_cls,name), self)
 
 
     def __len__(self):
@@ -2522,15 +2509,14 @@ def _infer_field_definition(type_: Type) -> Optional[BaseField]:
         return RawField
     return None
 
-# build the metadata for the Predicate - NOTE: this funtion returns a
-# PredicateDefn instance but it also modified the dct paramater to add the fields. It
+# get most of the arguments to create a PredicateDef - It
 # also checks to make sure the class Meta declaration is error free: 1) Setting
 # a name is not allowed for a tuple, 2) Sign controls if we want to allow
 # unification against a positive literal only, a negative literal only or
 # both. Sign can be True/False/None. By default sign is None (meaning both
 # positive/negative) unless it is a tuple then it is positive only.
 
-def _make_predicatedefn(class_name, dct) -> PredicateDefn:
+def _get_predicatedefn_args(class_name, dct):
 
     # Set the default predicate name
     pname = _predicatedefn_default_predicate_name(class_name)
@@ -2570,13 +2556,17 @@ def _make_predicatedefn(class_name, dct) -> PredicateDefn:
             raise ValueError(("Tuples cannot be negated so specifying "
                               "'sign' is None or False is invalid"))
 
-    reserved = set(["meta", "raw", "clone", "sign", "Field"])
+    return (pname, anon, sign)
 
-    # Generate the fields - NOTE: this relies on dct being an OrderedDict()
+def _get_field_definitions(pname, dct) -> Dict[str, BaseField]:
+    # get the field definitions - NOTE: this relies on dct being an OrderedDict()
     # which is true from Python 3.5+ (see PEP520
     # https://www.python.org/dev/peps/pep-0520/)
 
     fields_from_dct = {}
+    reserved = set(["meta", "raw", "clone", "sign", "Field"])
+
+    fds= {}
     for fname, fdefn in dct.items():
 
         # Ignore entries that are not field declarations
@@ -2621,20 +2611,11 @@ def _make_predicatedefn(class_name, dct) -> PredicateDefn:
     fields_from_annotations.update(**fields_from_dct)
     for fname, fdefn in  fields_from_annotations.items():
         try:
-            fd = get_field_definition(fdefn)
-            fa = FieldAccessor(fname, idx, fd)
-            dct[fname] = fa
-            fas.append(fa)
-            idx += 1
+            fds.update({fname: get_field_definition(fdefn)})
         except TypeError as e:
             raise TypeError("Error defining field '{}': {}".format(fname,str(e)))
+    return fds
 
-    # Create the "sign" attribute - must be assigned a parent in the metaclass
-    # __init__() call.
-    # dct["sign"] = SignAccessor()
-
-    # Now create the PredicateDefn object
-    return PredicateDefn(name=pname,field_accessors=fas, anon=anon,sign=sign)
 
 # ------------------------------------------------------------------------------
 # Define a BaseField sub-class that corresponds to a Predicate/ComplexTerm
@@ -2689,28 +2670,25 @@ class _PredicateMeta(type):
         elif len(parents) > 1:
             raise TypeError("Multiple Predicate sub-class inheritance forbidden")
 
-        # Set the _meta attribute and FieldAccessors
-        pred_def = _make_predicatedefn(name, dct)
-        dct["_meta"] = pred_def
+        predef_args = _get_predicatedefn_args(name, dct)
+        fds = _get_field_definitions(predef_args[0], dct)
 
-        # Create the "sign" attribute - must be assigned a parent after creating the cls
-        sign = SignAccessor()
-        dct["sign"] = sign
+        cls = super().__new__(meta, name, bases, dct)
+        
+        # create Accessors/Descriptors and update the attributes for the cls accordingly
+        fas = []
+        for idx, (fname, fd) in enumerate(fds.items()):
+            fas.append(FieldAccessor(fname,idx,fd, cls))
+            setattr(cls, fname, fas[idx])
+        setattr(cls, "sign", SignAccessor(cls))
 
-        new_cls = super().__new__(meta, name, bases, dct)
-
-        # set the parent for PredicateDefinition and FieldAccessors
-        pred_def.parent = new_cls
-        for field in pred_def:
-            fa = dct[field.name]
-            fa.parent = new_cls
-        pred_def.indexes=_get_paths_for_default_indexed_fields(new_cls)
-        sign.parent = new_cls
-
+        pred_def = PredicateDefn(predef_args[0], fas,predef_args[1], predef_args[2], cls)
+        setattr(cls, "_meta", pred_def)
+        pred_def.indexes =  _get_paths_for_default_indexed_fields(cls)
         # Set a BaseField sub-class that converts to/from cls instances
-        setattr(new_cls, "_field", _define_field_for_predicate(new_cls))
+        setattr(cls, "_field", _define_field_for_predicate(cls))
 
-        return new_cls
+        return cls
 
     # A Predicate subclass is an instance of this meta class. So to
     # provide querying of a Predicate subclass Blah by a positional
