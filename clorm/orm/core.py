@@ -2329,24 +2329,6 @@ def _preprocess_field_value(field_defn, v):
 # class constructor.
 # ------------------------------------------------------------------------------
 
-# Construct a Predicate via an explicit (raw) clingo.Symbol object
-def _predicate_init_by_raw(self, **kwargs):
-    raw = kwargs["raw"]
-    self._raw = raw
-    try:
-        cls=type(self)
-        if (raw.name != cls.meta.name or
-            cls.meta.arity != len(raw.arguments) or
-            (cls.meta.sign is not None and cls.meta.sign != raw.positive)):
-            raise ValueError(("Failed to unify clingo.Symbol object {} with "
-                              "Predicate class {}").format(raw, cls.__name__))
-        self._sign = raw.positive
-        self._field_values = tuple( f.defn.cltopy(raw.arguments[f.index]) \
-                                    for f in self.meta )
-    except (TypeError,AttributeError,RuntimeError):
-        raise ValueError(("Failed to unify clingo.Symbol object {} with "
-                          "Predicate class {}").format(raw, cls.__name__))
-
 # Construct a Predicate via the field keywords
 def _predicate_init_by_keyword_values(self, **kwargs):
     argnum=0
@@ -2644,7 +2626,7 @@ def _define_field_for_predicate(cls) -> Type[BaseField]:
         raise TypeError("Value {} ({}) is not an instance of {}".format(v,type(v),cls))
 
     def _cltopy(v):
-        return cls(raw=v)
+        return cls.from_raw(v)
 
     field = type(field_name, (BaseField,),
                  { "pytocl": _pytocl, "cltopy": _cltopy,
@@ -2762,8 +2744,6 @@ class Predicate(object, metaclass=_PredicateMeta):
                                  "valid keyword argument when combined with positional "
                                   "arguments: {}").format(kwargs))
             _predicate_init_by_positional_values(self, *args,**kwargs)
-        elif "raw" in kwargs:
-            _predicate_init_by_raw(self, **kwargs)
         else:
             _predicate_init_by_keyword_values(self, **kwargs)
 
@@ -2776,6 +2756,23 @@ class Predicate(object, metaclass=_PredicateMeta):
         if cls == __class__:
             raise TypeError(("Predicate/ComplexTerm must be sub-classed"))
         return super().__new__(cls)
+
+    @classmethod
+    def from_raw(cls, raw):
+        """Construct a Predicate via an explicit (raw) clingo.Symbol object"""
+        try:
+            if (raw.name != cls.meta.name or
+                cls.meta.arity != len(raw.arguments) or
+                (cls.meta.sign is not None and cls.meta.sign != raw.positive)):
+                raise ValueError(("Failed to unify clingo.Symbol object {} with "
+                                "Predicate class {}").format(raw, cls.__name__))
+            kwargs = {f.name: f.defn.cltopy(raw.arguments[f.index]) for f in cls.meta }
+            instance = cls(**kwargs, sign=raw.positive)
+            instance._raw = raw
+            return instance
+        except (TypeError,AttributeError,RuntimeError):
+            raise ValueError(("Failed to unify clingo.Symbol object {} with "
+                            "Predicate class {}").format(raw, cls.__name__))
 
     #--------------------------------------------------------------------------
     # Properties and functions for Predicate
@@ -2869,7 +2866,7 @@ class Predicate(object, metaclass=_PredicateMeta):
     # Factory that returns a unified Predicate object
     @classmethod
     def _unify(cls, raw):
-        return cls(raw=raw)
+        return cls.from_raw(raw)
 
     #--------------------------------------------------------------------------
     # Overloaded index operator to access the values and len operator

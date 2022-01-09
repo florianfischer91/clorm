@@ -1224,7 +1224,7 @@ class PredicateTestCase(unittest.TestCase):
         raw_f1 = Function("f",[Number(101),raw_1st, Number(202)])
 
         self.assertEqual(f1.raw, raw_f1)
-        self.assertEqual(F(raw=raw_f1), f1)
+        self.assertEqual(F.from_raw(raw_f1), f1)
 
         self.assertEqual(str(F(101,tuple([]),202)), """f(101,(),202)""")
         self.assertEqual(str(F(1,tuple([1,2,3,4]),2)),
@@ -1716,10 +1716,10 @@ class PredicateInternalUnifyTestCase(unittest.TestCase):
 
         with self.assertRaises(ValueError) as ctx:
             func2=Function("fact",[String("1"),String("test")])
-            f=Fact(raw=func2)
+            f=Fact.from_raw(func2)
 
         with self.assertRaises(ValueError) as ctx:
-            f=Fact(raw=[1,2,3])
+            f=Fact.from_raw([1,2,3])
 
 
     # --------------------------------------------------------------------------
@@ -1781,7 +1781,7 @@ class PredicateInternalUnifyTestCase(unittest.TestCase):
         neg_func=Function("f",[Number(1)],False)
         neg_f=F(1,sign=False)
         neg_f_alt1=F(a=1,sign=False)
-        neg_f_alt2=F(raw=neg_func)
+        neg_f_alt2=F.from_raw(neg_func)
         self.assertEqual(neg_func, neg_f.raw)
         self.assertEqual(neg_func, neg_f_alt1.raw)
         self.assertEqual(neg_func, neg_f_alt2.raw)
@@ -1846,14 +1846,14 @@ class PredicateInternalUnifyTestCase(unittest.TestCase):
 
         # F1 handles all
         pos_f1=F1(1,sign=True) ; neg_f1=F1(1,sign=False)
-        pos_f1_alt=F1(raw=pos_raw) ; neg_f1_alt=F1(raw=neg_raw)
+        pos_f1_alt=F1.from_raw(pos_raw) ; neg_f1_alt=F1.from_raw(neg_raw)
         self.assertEqual(pos_f1,pos_f1_alt)
         self.assertEqual(neg_f1,neg_f1_alt)
         self.assertEqual(pos_f1.clone(sign=False).raw, neg_f1.raw)
 
         # F2 handles positive only
         pos_f1=F2(1,sign=True) ;
-        pos_f1_alt=F2(raw=pos_raw) ;
+        pos_f1_alt=F2.from_raw(pos_raw) ;
         self.assertEqual(pos_f1,pos_f1_alt)
 
         with self.assertRaises(ValueError) as ctx:
@@ -1861,7 +1861,7 @@ class PredicateInternalUnifyTestCase(unittest.TestCase):
         with self.assertRaises(ValueError) as ctx:
             neg_f1=F2(1,sign=False)
         with self.assertRaises(ValueError) as ctx:
-            neg_f1=F2(raw=neg_raw)
+            neg_f1=F2.from_raw(neg_raw)
 
         with self.assertRaises(ValueError) as ctx:
             neg_tuple_g = G(1,2,sign=False)
@@ -1873,7 +1873,7 @@ class PredicateInternalUnifyTestCase(unittest.TestCase):
 
         # F3 handles negative only
         neg_f1=F3(1,sign=False) ;
-        neg_f1_alt=F3(raw=neg_raw) ;
+        neg_f1_alt=F3.from_raw(neg_raw) ;
         self.assertEqual(neg_f1,neg_f1_alt)
 
         with self.assertRaises(ValueError) as ctx:
@@ -1881,7 +1881,7 @@ class PredicateInternalUnifyTestCase(unittest.TestCase):
         with self.assertRaises(ValueError) as ctx:
             pos_f1=F3(1,sign=True)
         with self.assertRaises(ValueError) as ctx:
-            pos_f1=F3(raw=pos_raw)
+            pos_f1=F3.from_raw(pos_raw)
 
     #--------------------------------------------------------------------------
     # Test predicate equality
@@ -2110,7 +2110,7 @@ class PredicateInternalUnifyTestCase(unittest.TestCase):
         AnonPred3 = simple_predicate("predicate",3)
 
         # Should unify
-        ap3 = AnonPred3(raw=p3.raw)
+        ap3 = AnonPred3.from_raw(p3.raw)
         self.assertEqual(ap3.raw, p3.raw)
         self.assertEqual(ap3.arg1.symbol, String("string1"))
         self.assertEqual(ap3[0].symbol, String("string1"))
@@ -2119,17 +2119,17 @@ class PredicateInternalUnifyTestCase(unittest.TestCase):
 
         # Mismatched arity so unify will fail
         with self.assertRaises(ValueError) as ctx:
-            fail1 = AnonPred3(raw=p2.raw)
+            fail1 = AnonPred3.from_raw(p2.raw)
         # Mismatched predicate name so unify will fail
         with self.assertRaises(ValueError) as ctx:
-            fail2 = AnonPred3(raw=b3.raw)
+            fail2 = AnonPred3.from_raw(b3.raw)
 
 
         # Define predicate with a class name
         AnonPred4 = simple_predicate("predicate",3,name="AnonPred4")
 
         # Should unify
-        ap4 = AnonPred4(raw=p3.raw)
+        ap4 = AnonPred4.from_raw(p3.raw)
         self.assertEqual(ap4.raw, p3.raw)
 
     #--------------------------------------------------------------------------

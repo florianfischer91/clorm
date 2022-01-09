@@ -194,14 +194,14 @@ class UnifyTestCase(unittest.TestCase):
         r2 = Function("fact",[Number(1), Function("", [Function("bob",[]),Number(1)])])
 
         # r1 only unifies with Fact1 and r2 only unifies with Fact2
-        f1 = Fact1(raw=r1)
+        f1 = Fact1.from_raw(r1)
         self.assertEqual(f1.raw, r1)
         with self.assertRaises(ValueError) as ctx:
-            f2 = Fact1(raw=r2)
-        f2 = Fact2(raw=r2)
+            f2 = Fact1.from_raw(r2)
+        f2 = Fact2.from_raw(r2)
         self.assertEqual(f2.raw, r2)
         with self.assertRaises(ValueError) as ctx:
-            f1 = Fact2(raw=r1)
+            f1 = Fact2.from_raw(r1)
 
         # The unify() function should correctly unify both facts
         res = unify([Fact1,Fact2],[r1,r2])
@@ -228,13 +228,13 @@ class UnifyTestCase(unittest.TestCase):
         r2 = Function("fact",[Number(1), Function("", [Function("bob",[]),Number(1)])])
 
         # r1 only unifies with Fact1 but both r1 and r2 unify with Fact2
-        f1 = Fact1(raw=r1)
+        f1 = Fact1.from_raw(r1)
         self.assertEqual(f1.raw, r1)
         with self.assertRaises(ValueError) as ctx:
-            f2 = Fact1(raw=r2)
-        f1_alt = Fact2(raw=r1)
+            f2 = Fact1.from_raw(r2)
+        f1_alt = Fact2.from_raw(r1)
         self.assertEqual(f1_alt.raw, r1)
-        f2 = Fact2(raw=r2)
+        f2 = Fact2.from_raw(r2)
         self.assertEqual(f2.raw, r2)
 
         # unify() unifies r1 with Fact1 (f1) and r2 with Fact2 (f2)

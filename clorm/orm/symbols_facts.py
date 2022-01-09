@@ -95,7 +95,7 @@ class Unifier(object):
             mpredicates = self._pgroups.get((sym.name,len(sym.arguments)),[])
             for pred in mpredicates:
                 try:
-                    fb.add(pred(raw=sym))
+                    fb.add(pred.from_raw(sym))
                     matched = True
                     break
                 except ValueError:
