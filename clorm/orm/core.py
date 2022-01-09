@@ -2310,7 +2310,7 @@ class PredicateDefn(object):
 # ------------------------------------------------------------------------------
 
 # validate and get values for a predicate from given kwargs
-def _predicate_values_from_kwargs(self, **kwargs) -> Tuple[List[Any], bool]:
+def _predicate_values_from_kwargs(self, **kwargs) -> Tuple[Tuple[Any,...], bool]:
     argnum=0
     field_values = []
     for f in self.meta:
@@ -2359,7 +2359,7 @@ def _predicate_values_from_kwargs(self, **kwargs) -> Tuple[List[Any], bool]:
             raise ValueError(("Predicate {} is defined to only allow {} signed "
                               "instances").format(self.__class__, self.meta.sign))
 
-    return field_values, sign
+    return (tuple(field_values), sign)
 
 
 #------------------------------------------------------------------------------
@@ -2685,13 +2685,13 @@ class Predicate(object, metaclass=_PredicateMeta):
     """
     if TYPE_CHECKING:
         # populated by the metaclass, defined here to help IDEs only
-        _field_values: Dict[str, BaseField] = {}
+        _field_values: Tuple[Any,...]
         _sign : SignAccessor = None
         _raw: clingo.Symbol = None
         _hash: int
         _field: ClassVar[BaseField]
         _meta: ClassVar[PredicateDefn]
-
+   
     #--------------------------------------------------------------------------
     #
     #--------------------------------------------------------------------------
@@ -2706,18 +2706,12 @@ class Predicate(object, metaclass=_PredicateMeta):
                 raise ValueError("Expected {} arguments but {} given".format(argc,arity))
             kwargs.update({f.name: args[f.index] for f in self.meta})
 
-        field_values, sign = _predicate_values_from_kwargs(self, **kwargs)
-        # Turn it into a tuple
-        self._field_values = tuple(field_values)
-        # Assign the sign
-        self._sign = sign
-        # Create the raw clingo.Symbol object
+        # Assign values and sign
+        self._field_values, self._sign = _predicate_values_from_kwargs(self, **kwargs)
+
         self._raw = None
-
-        # Force the hash to be calculated and cached.
+        # set hash to None to be recalculated when __hash__() will be called.
         self._hash = None
-        self.__hash__()
-
 
     def __new__(cls, *args, **kwargs):
         if cls == __class__:
