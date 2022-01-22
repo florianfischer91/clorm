@@ -11,7 +11,7 @@ import inspect
 import abc
 import functools
 import itertools
-from typing import Iterable, Union
+from typing import Callable, Iterable, Iterator, List, Optional, Tuple, Type, Union
 
 from .core import *
 from .core import get_field_definition, PredicatePath, kwargs_check_keys, \
@@ -36,6 +36,7 @@ __all__ = [
 #------------------------------------------------------------------------------
 # Global
 #------------------------------------------------------------------------------
+Facts = Union[Iterable[Predicate], 'FactBase', Callable[[],Iterable[Predicate]]]
 
 #------------------------------------------------------------------------------
 # Support function for printing ASP facts: Note: _trim_docstring() is taken from
@@ -169,7 +170,7 @@ class FactBase(object):
     def _init(self, facts=None, indexes=None):
 
         # flag that initialisation has taken place
-        self._delayed_init = None
+        self._delayed_init: Optional[Callable[[],None]] = None
 
         # If it is delayed initialisation then get the facts
         if facts and callable(facts):
@@ -227,7 +228,7 @@ class FactBase(object):
     #--------------------------------------------------------------------------
     # Initiliser
     #--------------------------------------------------------------------------
-    def __init__(self, facts=None, indexes=None):
+    def __init__(self, facts: Optional[Facts]=None, indexes: Optional[Iterable[PredicatePath]]=None) -> None:
         self._delayed_init=None
         if callable(facts):
             def delayed_init():
@@ -263,17 +264,17 @@ class FactBase(object):
         self._check_init()  # Check for delayed init
         return self._add(arg)
 
-    def remove(self, arg):
+    def remove(self, arg: Predicate) -> None:
         """Remove a fact from the fact base (raises an exception if no fact). """
         self._check_init()  # Check for delayed init
         return self._remove(arg, raise_on_missing=True)
 
-    def discard(self, arg):
+    def discard(self, arg: Predicate) -> None:
         """Remove a fact from the fact base. """
         self._check_init()  # Check for delayed init
         return self._remove(arg, raise_on_missing=False)
 
-    def pop(self):
+    def pop(self) -> Predicate:
         """Pop an element from the FactBase. """
         self._check_init()  # Check for delayed init
         for pt, fm in self._factmaps.items():
@@ -350,25 +351,25 @@ class FactBase(object):
         return QueryImpl(self._factmaps, qspec)
 
     @property
-    def predicates(self):
+    def predicates(self) -> Tuple[Type[Predicate], ...]:
         """Return the list of predicate types that this fact base contains."""
 
         self._check_init()  # Check for delayed init
         return tuple([pt for pt, fm in self._factmaps.items() if fm])
 
     @property
-    def indexes(self):
+    def indexes(self) -> Tuple[PredicatePath,...]:
         self._check_init()  # Check for delayed init
         return self._indexes
 
-    def facts(self):
+    def facts(self) -> List[Predicate]:
         """Return all facts."""
 
         self._check_init()  # Check for delayed init
         tmp = [ fm.factset for fm in self._factmaps.values() if fm]
         return list(itertools.chain(*tmp))
 
-    def asp_str(self,*,width=0,commented=False,sorted=False):
+    def asp_str(self,*,width: int=0,commented: bool=False,sorted: bool=False) -> str:
         """Return a ASP string representation of the fact base.
 
         The generated ASP string representation is syntactically correct ASP
@@ -420,7 +421,7 @@ class FactBase(object):
 
 
 
-    def __str__(self):
+    def __str__(self) -> str:
         self._check_init()  # Check for delayed init
         tmp = ", ".join([str(f) for f in self])
         return '{' + tmp + '}'
@@ -455,7 +456,7 @@ class FactBase(object):
         self._check_init() # Check for delayed init
         return sum([len(fm.factset) for fm in self._factmaps.values()])
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Predicate]:
         self._check_init() # Check for delayed init
 
         for fm in self._factmaps.values():
@@ -569,7 +570,7 @@ class FactBase(object):
     #--------------------------------------------------------------------------
     # Set functions
     #--------------------------------------------------------------------------
-    def union(self,*others):
+    def union(self,*others: Facts) -> 'FactBase':
         """Implements the set union() function"""
         others=[o if isinstance(o, self.__class__) else FactBase(o) for o in others]
         self._check_init() # Check for delayed init
@@ -587,7 +588,7 @@ class FactBase(object):
                 fb._factmaps[p] = FactMap(p).union(*pothers)
         return fb
 
-    def intersection(self,*others):
+    def intersection(self,*others: Facts) -> 'FactBase':
         """Implements the set intersection() function"""
         others=[o if isinstance(o, self.__class__) else FactBase(o) for o in others]
         self._check_init() # Check for delayed init
@@ -602,7 +603,7 @@ class FactBase(object):
             fb._factmaps[p] = self._factmaps[p].intersection(*pothers)
         return fb
 
-    def difference(self,*others):
+    def difference(self,*others: Facts) -> 'FactBase':
         """Implements the set difference() function"""
         others=[o if isinstance(o, self.__class__) else FactBase(o) for o in others]
         self._check_init() # Check for delayed init
@@ -616,7 +617,7 @@ class FactBase(object):
             fb._factmaps[p] = self._factmaps[p].difference(*pothers)
         return fb
 
-    def symmetric_difference(self,other):
+    def symmetric_difference(self,other: Facts) -> 'FactBase':
         """Implements the set symmetric_difference() function"""
         if not isinstance(other, self.__class__): other=FactBase(other)
         self._check_init() # Check for delayed init
@@ -637,7 +638,7 @@ class FactBase(object):
 
         return fb
 
-    def update(self,*others):
+    def update(self,*others: Facts) -> None:
         """Implements the set update() function"""
         others=[o if isinstance(o, self.__class__) else FactBase(o) for o in others]
         self._check_init() # Check for delayed init
@@ -648,7 +649,7 @@ class FactBase(object):
                 if p in self._factmaps: self._factmaps[p].update(fm)
                 else: self._factmaps[p] = fm.copy()
 
-    def intersection_update(self,*others):
+    def intersection_update(self,*others: Facts) -> None:
         """Implements the set intersection_update() function"""
         others=[o if isinstance(o, self.__class__) else FactBase(o) for o in others]
         self._check_init() # Check for delayed init
@@ -664,7 +665,7 @@ class FactBase(object):
             pothers=[ o._factmaps[p] for o in others if p in o._factmaps]
             self._factmaps[p].intersection_update(*pothers)
 
-    def difference_update(self,*others):
+    def difference_update(self,*others: Facts) -> None:
         """Implements the set difference_update() function"""
         others=[o if isinstance(o, self.__class__) else FactBase(o) for o in others]
         self._check_init() # Check for delayed init
@@ -674,7 +675,7 @@ class FactBase(object):
             pothers=[ o._factmaps[p] for o in others if p in o._factmaps ]
             self._factmaps[p].difference_update(*pothers)
 
-    def symmetric_difference_update(self,other):
+    def symmetric_difference_update(self,other: Facts) -> None:
         """Implements the set symmetric_difference_update() function"""
         if not isinstance(other, self.__class__): other=FactBase(other)
         self._check_init() # Check for delayed init
@@ -690,7 +691,7 @@ class FactBase(object):
                 if p in other._factmaps: self._factmaps[p] = other._factmaps[p].copy()
 
 
-    def copy(self):
+    def copy(self) -> 'FactBase':
         """Implements the set copy() function"""
         self._check_init() # Check for delayed init
         fb=FactBase()
