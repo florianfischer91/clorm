@@ -2304,53 +2304,6 @@ class PredicateDefn(object):
         return iter(self._byidx)
 
 
-# ------------------------------------------------------------------------------
-# Helper functions for PredicateMeta class to create a Predicate
-# class constructor.
-# ------------------------------------------------------------------------------
-
-# validate and get values for a predicate from given kwargs
-def _predicate_values_from_kwargs(self, **kwargs) -> Tuple[Any,...]:
-    argnum=0
-    field_values = []
-    for f in self.meta:
-        argnum+=1
-        value = kwargs.get(f.name, MISSING)
-        if value is MISSING:
-            if f.defn.has_default:
-                # Note: must be careful to get the default value only once in case
-                # it is a function with side-effects.
-                value = f.defn.default
-                argnum-=1
-            else:
-                raise TypeError(("Missing argument for field \"{}\" (which has no "
-                                "default value)").format(f.name))
-        
-        # If the value is a tuple and the field definition is a
-        # complex-term then it tries to create an instance corresponding to the
-        # tuple. Otherwise we use the value as is.
-        predicate_cls = f.defn.complex
-        if predicate_cls and not isinstance(value, predicate_cls):
-            mt = predicate_cls.meta
-            if isinstance(value, tuple) or \
-               (mt.is_tuple and isinstance(value,Predicate) and value.meta.is_tuple):
-                if len(value) != len(mt):
-                    raise ValueError(("mis-matched arity between field {} (arity {}) and "
-                                    " value (arity {})").format(f.defn, len(mt), len(value)))
-                value = predicate_cls(*value)
-
-        # Set the value for the field
-        field_values.append(value)
-
-    if len(kwargs) > argnum:
-        args=set(kwargs.keys())
-        expected=set([f.name for f in self.meta])
-        raise TypeError(("Unexpected keyword arguments for \"{}\" constructor: "
-                          "{}").format(type(self).__name__, ",".join(args-expected)))
-
-    return tuple(field_values)
-
-
 #------------------------------------------------------------------------------
 # Metaclass constructor support functions to create the fields
 #------------------------------------------------------------------------------
@@ -2580,6 +2533,51 @@ def _define_field_for_predicate(cls) -> Type[BaseField]:
                    "complex": lambda self: cls})
     return field
 
+
+def _predicate__init__(self: 'Predicate', sign: bool, **kwargs: Any) -> None:
+
+    # Assign values and sign
+    if self.meta.sign is not None and sign != self.meta.sign:
+        raise ValueError(("Predicate {} is defined to only allow {} signed "
+                        "instances").format(self.__class__, self.meta.sign))
+    
+    self._sign = sign
+
+    field_values = []
+    for f in self.meta:
+        value = kwargs.get(f.name, MISSING)
+        if value is MISSING:
+            if f.defn.has_default:
+                # Note: must be careful to get the default value only once in case
+                # it is a function with side-effects.
+                value = f.defn.default
+            else:
+                raise TypeError(("Missing argument for field \"{}\" (which has no "
+                                "default value)").format(f.name))
+        
+        # If the value is a tuple and the field definition is a
+        # complex-term then it tries to create an instance corresponding to the
+        # tuple. Otherwise we use the value as is.
+        predicate_cls = f.defn.complex
+        if predicate_cls and not isinstance(value, predicate_cls):
+            mt = predicate_cls.meta
+            if isinstance(value, tuple) or \
+               (mt.is_tuple and isinstance(value,Predicate) and value.meta.is_tuple):
+                if len(value) != len(mt):
+                    raise ValueError(("mis-matched arity between field {} (arity {}) and "
+                                    " value (arity {})").format(f.defn, len(mt), len(value)))
+                value = predicate_cls(*value)
+
+        # Set the value for the field
+        field_values.append(value)
+
+    self._field_values = tuple(field_values)
+
+    self._raw = None
+    # set hash to None to be recalculated when __hash__() will be called.
+    self._hash = None
+
+
 #------------------------------------------------------------------------------
 # A Metaclass for the Predicate base class
 #------------------------------------------------------------------------------
@@ -2601,7 +2599,21 @@ class _PredicateMeta(type):
 
         predef_args = _get_predicatedefn_args(name, dct)
         fds = _get_field_definitions(predef_args[0], dct)
+        args_list = []
+        args_list_defaults = ''
+        for fname, fd in fds.items():
+            args_list.append(fname)
+            args_list_defaults += fname + f'=MISSING, '
 
+        args= ', '.join(f"{a}={b}" for a,b in zip(args_list,args_list))
+        if args_list:
+            args += ','
+            
+        code = f"lambda _self, {args_list_defaults}* ,sign=True: _predicate_init(_self, {args} sign=sign)"
+        __init__ = eval(code, {'_predicate_init': _predicate__init__, 'MISSING': MISSING} )
+        __init__.__name__  = '__init__'
+        __init__.__doc__ = f'Initialise instance of {name}({", ".join(args_list)})'
+        dct["__init__"] = __init__
         cls = super().__new__(meta, name, bases, dct)
         
         # create Accessors/Descriptors and update the attributes for the cls accordingly
@@ -2684,28 +2696,28 @@ class Predicate(object, metaclass=_PredicateMeta):
     #--------------------------------------------------------------------------
     #
     #--------------------------------------------------------------------------
-    def __init__(self, *args, sign=True, **kwargs):
-        if args and kwargs:
-            raise ValueError(("Invalid Predicate initialisation: only \"sign\" is a "
-                                "valid keyword argument when combined with positional "
-                                "arguments: {}").format(kwargs))
-        if args:
-            argc, arity = len(args), len(self.meta)
-            if argc != arity:
-                raise ValueError("Expected {} arguments but {} given".format(argc,arity))
-            kwargs.update({f.name: args[f.index] for f in self.meta})
+    # def __init__(self, *args, sign=True, **kwargs):
+    #     if args and kwargs:
+    #         raise ValueError(("Invalid Predicate initialisation: only \"sign\" is a "
+    #                             "valid keyword argument when combined with positional "
+    #                             "arguments: {}").format(kwargs))
+    #     if args:
+    #         argc, arity = len(args), len(self.meta)
+    #         if argc != arity:
+    #             raise ValueError("Expected {} arguments but {} given".format(argc,arity))
+    #         kwargs.update({f.name: args[f.index] for f in self.meta})
 
-        # Assign values and sign
-        if self.meta.sign is not None and sign != self.meta.sign:
-            raise ValueError(("Predicate {} is defined to only allow {} signed "
-                            "instances").format(self.__class__, self.meta.sign))
+    #     # Assign values and sign
+    #     if self.meta.sign is not None and sign != self.meta.sign:
+    #         raise ValueError(("Predicate {} is defined to only allow {} signed "
+    #                         "instances").format(self.__class__, self.meta.sign))
        
-        self._sign = sign
-        self._field_values = _predicate_values_from_kwargs(self, **kwargs)
+    #     self._sign = sign
+    #     self._field_values = _predicate_values_from_kwargs(self, **kwargs)
 
-        self._raw = None
-        # set hash to None to be recalculated when __hash__() will be called.
-        self._hash = None
+    #     self._raw = None
+    #     # set hash to None to be recalculated when __hash__() will be called.
+    #     self._hash = None
 
     def __new__(cls, *args, **kwargs):
         if cls == __class__:
