@@ -37,7 +37,7 @@ from .templating import (expand_template, PREDICATE_TEMPLATE,
                          NO_DEFAULTS_TEMPLATE, ASSIGN_DEFAULT_TEMPLATE,
                          ASSIGN_COMPLEX_TEMPLATE, PREDICATE_UNIFY_DOCSTRING)
 
-from typing import ( Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple,
+from typing import ( Any, Callable, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple,
                      Type, TypeVar, Union, overload, cast )
 
 
@@ -129,6 +129,8 @@ _T = TypeVar('_T')
 _P = TypeVar('_P', bound='Predicate')
 
 AnySymbol = Union[Symbol, NoSymbol]
+_BF = TypeVar('_BF', bound='BaseField')
+_Predicate = TypeVar('_Predicate', bound='Predicate')
 
 #------------------------------------------------------------------------------
 # A _classproperty decorator. (see
@@ -333,8 +335,8 @@ class QCondition(object):
             2, Form.INFIX, lambda seq,obj: "{} not in {}".format(path(obj),seq))
     }
 
-    def __init__(self, op, *args):
-        def _validate_qc(qc):
+    def __init__(self, op: Any, *args: Any) -> None:
+        def _validate_qc(qc: Any) -> Any:
             if isinstance(qc,QCondition): return qc
             if isinstance(qc,Comparator): return qc
             if callable(qc) and not isinstance(qc,PredicatePath): return qc
@@ -350,12 +352,12 @@ class QCondition(object):
             raise TypeError(("'{}' is not a valid query path expression in"
                              "'{}'").format(p,errstr))
 
-        def _is_bool_op():
+        def _is_bool_op() -> bool:
             return bool(op in [ operator.and_, operator.or_, operator.not_ ])
-        def _is_comparator_op():
+        def _is_comparator_op() -> bool:
             return bool(op in [ operator.eq, operator.ne, operator.lt,
                                 operator.le, operator.gt, operator.ge ])
-        def _is_cross_op():
+        def _is_cross_op() -> bool:
             return bool(op == trueall)
 
         opsig = QCondition.operators.get(op,None)
@@ -413,7 +415,7 @@ class QCondition(object):
                          "If you want to express complex queries use '&',"
                          "'|','~' instead of 'and','or','not'.").format(self))
 
-    def __str__(self):
+    def __str__(self) -> str:
         opsig = QCondition.operators[self._operator]
         return opsig.tostr(*self._args)
         args = [ "({})".format(a) if isinstance(a,QCondition) else str(a) \
@@ -808,7 +810,7 @@ class PredicatePath(object, metaclass=_PredicatePathMeta):
     #--------------------------------------------------------------------------
     # Get all field path builder corresponding to an index
     # --------------------------------------------------------------------------
-    def __getitem__(self, key):
+    def __getitem__(self, key: Union[int, str]) -> 'PredicatePath':
         try:
             return self._subpath[key]
         except:
@@ -878,8 +880,15 @@ class PredicatePath(object, metaclass=_PredicatePathMeta):
 # corresponding to that path or if input a hashable path will return the
 # corresponding path object.
 # ------------------------------------------------------------------------------
+PathArg = Union[Type['Predicate'], PredicatePath, PredicatePath.Hashable]
 
-def path(arg,exception=True):
+@overload
+def path(arg: PathArg) -> PredicatePath:...
+
+@overload
+def path(arg: PathArg, exception: bool=False) -> Optional[PredicatePath]:...
+
+def path(arg: PathArg, exception: bool=True) -> Optional[PredicatePath]:
     '''Returns the :class:`PredicatePath` corresponding to some component.
 
     This function is useful for users for the special case of referring to the
@@ -954,7 +963,7 @@ def hashable_path(arg,exception=True):
 # API function to return the an alias path for a predicate
 # ------------------------------------------------------------------------------
 
-def alias(predicate, name=None):
+def alias(predicate: Type[_Predicate], name: str = None) -> Type[_Predicate]:
     '''Return an alias :class:`PredicatePath` instance for a :class:`Predicate` sub-class.
 
     A predicate alias can be used to support self joins in queries. The alias
@@ -1522,7 +1531,7 @@ class SimpleField(BaseField):
 # ------------------------------------------------------------------------------
 
 # Support for refine_field
-def _refine_field_functor(subclass_name, field_class, valfunc):
+def _refine_field_functor(subclass_name: str, field_class: Type[_BF], valfunc: Callable[[Any],bool]) -> Type[_BF]:
     def _test_value(v):
         if not valfunc(v):
             raise TypeError(("Invalid value \"{}\" for {} (restriction of "
@@ -1534,7 +1543,7 @@ def _refine_field_functor(subclass_name, field_class, valfunc):
                   "cltopy": _test_value})
 
 # Support for refine_field
-def _refine_field_collection(subclass_name, field_class, values):
+def _refine_field_collection(subclass_name: str, field_class: Type[_BF], values: Iterable[Any]) -> Type[_BF]:
     # Check that the values are all valid
     for v in values:
         try:
@@ -1555,7 +1564,9 @@ def _refine_field_collection(subclass_name, field_class, values):
                 { "pytocl": _test_value,
                   "cltopy": _test_value})
 
-def refine_field(field_class,values,*,name=None):
+def refine_field(field_class: Type[_BF],
+                 values: Union[Iterable[_T], Callable[[_T],bool]],*,
+                 name: Optional[str]=None) -> Type[_BF]:
     """Factory function that returns a field sub-class with restricted values.
 
     A helper factory function to define a sub-class of a BaseField (or sub-class)
@@ -1609,7 +1620,7 @@ def refine_field(field_class,values,*,name=None):
     """
     subclass_name = name if name else field_class.__name__ + "_Restriction"
 
-    if not inspect.isclass(field_class) or not issubclass(field_class,BaseField):
+    if not inspect.isclass(field_class) or (not issubclass(field_class,BaseField) and field_class != BaseField):
         raise TypeError("{} is not a subclass of BaseField".format(field_class))
 
     if callable(values):
