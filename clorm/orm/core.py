@@ -2310,7 +2310,7 @@ class PredicateDefn(object):
 # ------------------------------------------------------------------------------
 
 # validate and get values for a predicate from given kwargs
-def _predicate_values_from_kwargs(self, **kwargs) -> Tuple[Tuple[Any,...], bool]:
+def _predicate_values_from_kwargs(self, **kwargs) -> Tuple[Any,...]:
     argnum=0
     field_values = []
     for f in self.meta:
@@ -2342,24 +2342,13 @@ def _predicate_values_from_kwargs(self, **kwargs) -> Tuple[Tuple[Any,...], bool]
         # Set the value for the field
         field_values.append(value)
 
-    # Calculate the sign of the literal and check that it matches the allowed values
-    if "sign" in kwargs:
-        sign = bool(kwargs["sign"])
-        argnum += 1
-    else:
-        sign = True
-
     if len(kwargs) > argnum:
         args=set(kwargs.keys())
         expected=set([f.name for f in self.meta])
         raise TypeError(("Unexpected keyword arguments for \"{}\" constructor: "
                           "{}").format(type(self).__name__, ",".join(args-expected)))
-    if self.meta.sign is not None:
-        if sign != self.meta.sign:
-            raise ValueError(("Predicate {} is defined to only allow {} signed "
-                              "instances").format(self.__class__, self.meta.sign))
 
-    return (tuple(field_values), sign)
+    return tuple(field_values)
 
 
 #------------------------------------------------------------------------------
@@ -2695,19 +2684,24 @@ class Predicate(object, metaclass=_PredicateMeta):
     #--------------------------------------------------------------------------
     #
     #--------------------------------------------------------------------------
-    def __init__(self, *args, **kwargs):
-        if len(args) > 0:
-            if len(kwargs) > 1 or (len(kwargs) == 1 and "sign" not in kwargs):
-                raise ValueError(("Invalid Predicate initialisation: only \"sign\" is a "
-                                 "valid keyword argument when combined with positional "
-                                  "arguments: {}").format(kwargs))
+    def __init__(self, *args, sign=True, **kwargs):
+        if args and kwargs:
+            raise ValueError(("Invalid Predicate initialisation: only \"sign\" is a "
+                                "valid keyword argument when combined with positional "
+                                "arguments: {}").format(kwargs))
+        if args:
             argc, arity = len(args), len(self.meta)
             if argc != arity:
                 raise ValueError("Expected {} arguments but {} given".format(argc,arity))
             kwargs.update({f.name: args[f.index] for f in self.meta})
 
         # Assign values and sign
-        self._field_values, self._sign = _predicate_values_from_kwargs(self, **kwargs)
+        if self.meta.sign is not None and sign != self.meta.sign:
+            raise ValueError(("Predicate {} is defined to only allow {} signed "
+                            "instances").format(self.__class__, self.meta.sign))
+       
+        self._sign = sign
+        self._field_values = _predicate_values_from_kwargs(self, **kwargs)
 
         self._raw = None
         # set hash to None to be recalculated when __hash__() will be called.
