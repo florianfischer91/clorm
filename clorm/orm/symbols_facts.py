@@ -9,10 +9,12 @@
 # less heavy handed.
 # ------------------------------------------------------------------------------
 
+from collections import defaultdict
 import itertools
 from typing import Any, Iterable, Union
-from collections import abc
 
+from typing import Any, Dict, Iterable, Iterator, List, Literal, Optional, Sequence, Set, Tuple, \
+    Type, TypeVar, Union, no_type_check, overload
 import clingo
 import clingo.ast as clast
 from .core import *
@@ -37,13 +39,15 @@ __all__ = [
 #------------------------------------------------------------------------------
 # Global
 #------------------------------------------------------------------------------
+_Predicate = TypeVar('_Predicate', bound=Predicate)
+_PredicateGroups = Dict[Tuple[int, str], List[Type[Predicate]]]
 
 #------------------------------------------------------------------------------
 # Clorm exception subclasses
 #------------------------------------------------------------------------------
 
 class UnifierNoMatchError(ClormError):
-    def __init__(self,message, symbol, predicates):
+    def __init__(self, message: str, symbol: clingo.Symbol, predicates: Tuple[Type[Predicate], ...]) -> None:
         super().__init__(message)
         self._symbol=symbol
         self._predicates=predicates
@@ -53,7 +57,7 @@ class UnifierNoMatchError(ClormError):
     def predicates(self): return self._predicates
 
 class FactParserError(ClormError):
-    def __init__(self,message: str, line: int, column: int):
+    def __init__(self,message: str, line: int, column: int) -> None:
         self.line = line
         self.column = column
         super().__init__(message)
@@ -65,19 +69,19 @@ class FactParserError(ClormError):
 # ------------------------------------------------------------------------------
 
 class Unifier(object):
-    def __init__(self,predicates=[]):
+    def __init__(self,predicates: Iterable[Type[Predicate]]=[]):
         self._predicates=tuple(predicates)
-        self._pgroups = {}
+        self._pgroups: _PredicateGroups = defaultdict(list)
         self._add_predicates(predicates)
 
-    def _add_predicates(self,predicates=[]):
+    def _add_predicates(self,predicates: Iterable[Type[Predicate]]=[]) -> None:
         for p in predicates:
-            self._pgroups.setdefault((p.meta.arity,p.meta.name),[]).append(p)
+            self._pgroups[(p.meta.arity,p.meta.name)].append(p)
 
-    def add_predicate(self,predicate):
-        self._add_predicates([predicates])
+    def add_predicate(self,predicate: Type[Predicate]) -> None:
+        self._add_predicates([predicate])
 
-    def unify_symbol(self,sym,*,raise_nomatch=False):
+    def unify_symbol(self,sym: clingo.Symbol,*,raise_nomatch: bool=False) -> Optional[Predicate]:
         mpredicates = self._pgroups.get((len(sym.arguments),sym.name),[])
         for pred in mpredicates:
             instance = pred._unify(sym)
@@ -89,7 +93,7 @@ class Unifier(object):
                 sym, self._predicates)
         return None
 
-    def unify(self,symbols,*,factbase=None,raise_nomatch=False):
+    def unify(self,symbols: List[clingo.Symbol],*,factbase: FactBase = None, raise_nomatch: bool = False) -> FactBase:
         fb=FactBase() if factbase is None else factbase
         for sym in symbols:
             matched = False
@@ -111,16 +115,15 @@ class Unifier(object):
 # matters) and a set of raw clingo symbols against this list.
 # ------------------------------------------------------------------------------
 
-def _unify(predicates, symbols):
+def _unify(predicates: Iterable[Type[Predicate]], symbols: Iterable[clingo.Symbol]) -> Iterator[Predicate]:
     # To make things a little more efficient use the arity-name signature as a
     # filter. However, Python doesn't have a built in multidict class, and I
     # don't want to add a dependency to an external library just for one small
     # feature, so implement a simple structure here.
     sigs = [((len(cls.meta), cls.meta.name),cls) for cls in predicates]
-    types = {}
+    types: _PredicateGroups = defaultdict(list)
     for sig,cls in sigs:
-        if sig not in types: types[sig] = [cls]
-        else: types[sig].append(cls)
+        types[sig].append(cls)
 
     # Loop through symbols and yield when we have a match
     for raw in symbols:
@@ -144,14 +147,15 @@ class SymbolPredicateUnifier(object):
     decorator.
     """
 
-    def __init__(self, predicates=[], indexes=[], suppress_auto_index=False):
-        self._predicates = ()
-        self._indexes = ()
+    def __init__(self,
+                 predicates: Iterable[Type[Predicate]] = [],
+                 indexes: Iterable[PredicatePath] = [],
+                 suppress_auto_index: bool = False) -> None:
         self._suppress_auto_index = suppress_auto_index
-        tmppreds = []
-        tmpinds = []
-        tmppredset = set()
-        tmpindset = set()
+        tmppreds: List[Type[Predicate]] = []
+        tmpinds: List[PredicatePath] = []
+        tmppredset: Set[Type[Predicate]] = set()
+        tmpindset: Set[PredicatePath.Hashable] = set()
         for pred in predicates:
                 self._register_predicate(pred,tmppreds,tmpinds,tmppredset,tmpindset)
         for fld in indexes:
@@ -159,7 +163,12 @@ class SymbolPredicateUnifier(object):
         self._predicates = tuple(tmppreds)
         self._indexes = tuple(tmpinds)
 
-    def _register_predicate(self, cls, predicates, indexes, predicateset, indexset):
+    def _register_predicate(self,
+                            cls: Type[Predicate],
+                            predicates: List[Type[Predicate]],
+                            indexes: List[PredicatePath],
+                            predicateset: Set[Type[Predicate]],
+                            indexset: Set[PredicatePath.Hashable]) -> None:
         if not issubclass(cls, Predicate):
             raise TypeError("{} is not a Predicate sub-class".format(cls))
         if cls in predicateset: return
@@ -171,7 +180,12 @@ class SymbolPredicateUnifier(object):
         for fp in cls.meta.indexes:
             self._register_index(fp,predicates,indexes,predicateset,indexset)
 
-    def _register_index(self, path, predicates, indexes, predicateset, indexset):
+    def _register_index(self,
+                        path: PredicatePath,
+                        predicates: Iterable[Type[Predicate]],
+                        indexes: List[PredicatePath],
+                        predicateset: Set[Type[Predicate]],
+                        indexset: Set[PredicatePath.Hashable]) -> None:
         if path.meta.hashable in indexset: return
         if isinstance(path, PredicatePath) and path.meta.predicate in predicateset:
             indexset.add(path.meta.hashable)
@@ -180,7 +194,7 @@ class SymbolPredicateUnifier(object):
             raise TypeError("{} is not a predicate field for one of {}".format(
                 path, [ p.__name__ for p in predicates ]))
 
-    def register(self, cls):
+    def register(self, cls: Type[_Predicate]) -> Type[_Predicate]:
         if cls in self._predicates: return cls
         predicates = list(self._predicates)
         indexes = list(self._indexes)
@@ -191,8 +205,11 @@ class SymbolPredicateUnifier(object):
         self._indexes = tuple(indexes)
         return cls
 
-    def unify(self, symbols, delayed_init=False, raise_on_empty=False):
-        def _populate():
+    def unify(self,
+              symbols: Iterable[clingo.Symbol],
+              delayed_init: bool = False,
+              raise_on_empty: bool = False) -> FactBase:
+        def _populate() -> List[Predicate]:
             facts=list(_unify(self.predicates, symbols))
             if not facts and raise_on_empty:
                 raise ValueError("FactBase creation: failed to unify any symbols")
@@ -214,7 +231,22 @@ class SymbolPredicateUnifier(object):
 # the symbol object contained in `symbols`.
 # ------------------------------------------------------------------------------
 
-def unify(unifier,symbols,ordered=False):
+
+@overload
+def unify(unifier: Union[Iterable[Type[Predicate]], SymbolPredicateUnifier],
+          symbols: Iterable[clingo.Symbol],
+          ordered: Literal[False]) -> List[Predicate]: ...
+
+
+@overload
+def unify(unifier: Union[Iterable[Type[Predicate]], SymbolPredicateUnifier],
+          symbols: Iterable[clingo.Symbol],
+          ordered: Literal[True]) -> FactBase: ...
+
+
+def unify(unifier: Union[Iterable[Type[Predicate]], SymbolPredicateUnifier],
+          symbols: Iterable[clingo.Symbol],
+          ordered: bool = False) -> Union[FactBase, List[Predicate]]:
     '''Unify raw symbols against a list of predicates or a SymbolPredicateUnifier.
 
     Symbols are tested against each predicate unifier until a match is
@@ -236,9 +268,8 @@ def unify(unifier,symbols,ordered=False):
         raise ValueError(("The unifier must be a list of predicates "
                           "or a SymbolPredicateUnifier"))
     if ordered:
-        if isinstance(unifier, SymbolPredicateUnifier):
-            unifier=unifier.predicates
-        return list(_unify(unifier,symbols))
+        predicates = unifier.predicates if isinstance(unifier, SymbolPredicateUnifier) else unifier
+        return list(_unify(predicates,symbols))
     else:
         if not isinstance(unifier, SymbolPredicateUnifier):
             unifier=SymbolPredicateUnifier(predicates=unifier)
@@ -259,7 +290,8 @@ if clingo.__version__ >= "5.5.0":
 else:
     import clingo.ast as ast
 
-    def control_add_facts(ctrl: clingo.Control, facts: Iterable[Union[Predicate, clingo.Symbol]]) -> None:
+    @no_type_check
+    def control_add_facts(ctrl, facts):
         with ctrl.builder() as bldr:
             line=1
             for f in facts:
@@ -288,8 +320,10 @@ control_add_facts.__doc__ = '''Assert a collection of facts to the solver
 # Function to take a SymbolicAtoms object and extract facts from it
 # ------------------------------------------------------------------------------
 
-def symbolic_atoms_to_facts(symbolic_atoms, unifier, *,
-                            facts_only=False, factbase=None):
+def symbolic_atoms_to_facts(symbolic_atoms: clingo.SymbolicAtoms,
+                            unifier: Iterable[Type[Predicate]], *,
+                            facts_only: bool = False,
+                            factbase: FactBase = None) -> FactBase:
     '''Extract `clorm.FactBase` from `clingo.SymbolicAtoms`
 
     A `clingo.SymbolicAtoms` object is returned from the
@@ -305,13 +339,12 @@ def symbolic_atoms_to_facts(symbolic_atoms, unifier, *,
         facts_only (default False): return facts only or include contingent literals
         factbase (default None): add to existing FactBase or return a new FactBase
     '''
+    if factbase is None: factbase = FactBase()
 
-    if factbase is None: factbase=FactBase()
-
-    def group_predicates():
-        groups = {}
+    def group_predicates() -> Dict[Tuple[str, int], List[Type[Predicate]]]:
+        groups: Dict[Tuple[str, int], List[Type[Predicate]]] = defaultdict(list)
         for pcls in unifier:
-            groups.setdefault((pcls.meta.name,pcls.meta.arity),[]).append(pcls)
+            groups[(pcls.meta.name, pcls.meta.arity)].append(pcls)
         return groups
 
     groups = group_predicates()
@@ -339,7 +372,7 @@ class ClingoParserWrapperError(Exception):
     a copy constructor.
 
     """
-    def __init__(self, arg):
+    def __init__(self, arg: Any) -> None:
         if type(arg) == type(self):
             self.exc = arg.exc
         else:
@@ -399,11 +432,11 @@ class NonFactVisitor:
         ASTType.Defined,
         ASTType.TheoryDefinition})
 
-    def __call__(self, stmt: AST):
+    def __call__(self, stmt: AST) -> None:
         self._stmt = stmt
         self._visit(stmt)
 
-    def _visit(self, ast: AST):
+    def _visit(self, ast: AST) -> None:
         '''
         Dispatch to a visit method.
         '''
@@ -423,8 +456,8 @@ class NonFactVisitor:
             if isinstance(subast, AST):
                 self._visit(subast)
 
-def parse_fact_string(aspstr,unifier,*,factbase=None,
-                      raise_nomatch=False,raise_nonfact=False):
+def parse_fact_string(aspstr: str, unifier: Iterable[Type[Predicate]], *, factbase: FactBase = None,
+                      raise_nomatch: bool = False, raise_nonfact: bool = False) -> FactBase:
     '''Parse a string of ASP facts into a FactBase
 
     Facts must be of a simple form that can correspond to clorm predicate
@@ -457,14 +490,14 @@ def parse_fact_string(aspstr,unifier,*,factbase=None,
         if raise_nonfact:
             with clast.ProgramBuilder(ctrl) as bld:
                 nfv = NonFactVisitor()
-                def on_rule(ast: AST):
+                def on_rule(ast: AST) -> None:
                     nonlocal nfv, bld
                     if nfv: nfv(ast)
                     bld.add(ast)
                 clast.parse_string(aspstr, on_rule)
         else:
             ctrl.add("base", [], aspstr)
-    
+
     except ClingoParserWrapperError as e:
         raise e.exc
 
@@ -476,8 +509,8 @@ def parse_fact_string(aspstr,unifier,*,factbase=None,
 
 
 
-def parse_fact_files(files,unifier,*,factbase=None,
-                     raise_nomatch=False,raise_nonfact=False):
+def parse_fact_files(files: Sequence[str], unifier: Iterable[Type[Predicate]], *, factbase: FactBase = None,
+                     raise_nomatch: bool = False, raise_nonfact: bool = False) -> FactBase:
     '''Parse the facts from a list of files into a FactBase
 
     Facts must be of a simple form that can correspond to clorm predicate
@@ -509,7 +542,7 @@ def parse_fact_files(files,unifier,*,factbase=None,
         if raise_nonfact:
             with clast.ProgramBuilder(ctrl) as bld:
                 nfv = NonFactVisitor()
-                def on_rule(ast: AST):
+                def on_rule(ast: AST) -> None:
                     nonlocal nfv, bld
                     if nfv: nfv(ast)
                     bld.add(ast)
@@ -568,8 +601,8 @@ class LarkFactTransformer(Transformer):
     def start(self, v):
         return v
 
-def lark_parse_fact_string(aspstr,unifier, *,
-                           factbase=None, raise_nomatch=False):
+def lark_parse_fact_string(aspstr: str, unifier: Iterable[Type[Predicate]], *,
+                           factbase: FactBase = None, raise_nomatch: bool = False) -> FactBase:
     try:
         fact_parser = Lark_StandAlone(transformer=LarkFactTransformer())
         symbols = fact_parser.parse(aspstr)
@@ -578,11 +611,11 @@ def lark_parse_fact_string(aspstr,unifier, *,
     except UnexpectedInput as e:
         raise FactParserError(str(e), line=e.line, column=e.column)
     except LarkError as e:
-        raise FactParserError(str(e))
+        raise FactParserError(str(e), line=0, column=0)
 
-def lark_parse_fact_files(files, unifier, *,
-                          factbase=None, raise_nomatch=False):
-    fb=FactBase() if factbase is None else factbase
+def lark_parse_fact_files(files: Iterable[str], unifier: Iterable[Type[Predicate]], *,
+                          factbase: FactBase = None, raise_nomatch: bool = False) -> FactBase:
+    fb = FactBase() if factbase is None else factbase
     for fn in files:
         with open(fn, 'r') as file:
             aspstr = file.read()
