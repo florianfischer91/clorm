@@ -11,9 +11,9 @@
 
 from collections import defaultdict
 import itertools
-from typing import Any, Iterable, Union
+import sys
 
-from typing import Any, Dict, Iterable, Iterator, List, Literal, Optional, Sequence, Set, Tuple, \
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Set, Tuple, \
     Type, TypeVar, Union, no_type_check, overload
 import clingo
 import clingo.ast as clast
@@ -23,6 +23,10 @@ from .factbase import *
 from .core import get_field_definition, PredicatePath, kwargs_check_keys, \
     get_symbol_mode
 
+if sys.version_info < (3, 8):
+    from typing_extensions import Literal
+else:
+    from typing import Literal
 
 __all__ = [
     'SymbolPredicateUnifier',
