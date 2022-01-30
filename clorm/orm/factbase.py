@@ -35,12 +35,13 @@ from .factcontainers import FactSet, FactIndex, FactMap, factset_equality
 # else we use the fallback to TypeVar and a default-implementation of Unpack
 #------------------------------------------------------------------------------
 if TYPE_CHECKING:
-    from typing_extensions import TypeVarTuple, Unpack # type: ignore
+    from typing_extensions import TypeVarTuple, Unpack  # type: ignore
 
 else:
     TypeVarTuple = TypeVar
+    _Generic = TypeVar("_Generic")
 
-    class Unpack:
+    class Unpack(Generic[_Generic]):
         def __class_getitem__(self, typeargs):
             return typeargs
 
