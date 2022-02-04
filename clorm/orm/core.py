@@ -741,7 +741,7 @@ class PredicatePath(object, metaclass=_PredicatePathMeta):
     # Predicate class and subsequent elements are strings refering to
     # attributes.
     #--------------------------------------------------------------------------
-    def __init__(self, pathseq: List[Union['PathIdentity',str]]):
+    def __init__(self, pathseq: List[Union['PathIdentity',str]]) -> None:
         self._meta = PredicatePath.Meta(self)
         self._pathseq = tuple(pathseq)
         self._subpath = {}
@@ -1635,7 +1635,7 @@ def refine_field(field_class: Type[_BF],
 # helper function.
 # ------------------------------------------------------------------------------
 
-def combine_fields(fields,*,name=None):
+def combine_fields(fields: Sequence[Type[BaseField]],*,name: str=None) -> Type[BaseField]:
     """Factory function that returns a field sub-class that combines other fields
 
     A helper factory function to define a sub-class of BaseField that combines
@@ -1696,7 +1696,7 @@ def combine_fields(fields,*,name=None):
 # deals with a list/tuple encoded and an asp basic tuple.
 # ------------------------------------------------------------------------------
 
-def define_flat_list_field(element_field,*,name=None):
+def define_flat_list_field(element_field: Type[BaseField],*,name: str=None) -> Type[BaseField]:
     """Factory function that returns a BaseField sub-class for flat lists
 
     This function is a helper factory function to define a sub-class of
@@ -1758,7 +1758,8 @@ def define_flat_list_field(element_field,*,name=None):
 # deals with nested list encoded asp.
 # ------------------------------------------------------------------------------
 
-def define_nested_list_field(element_field,*,headlist=True,reverse=False,name=None):
+def define_nested_list_field(element_field: Type[BaseField],*,
+                             headlist: bool=True,reverse: bool=False,name: str=None) -> Type[BaseField]:
     """Factory function that returns a BaseField sub-class for nested lists
 
     This function is a helper factory function to define a sub-class of
@@ -1936,7 +1937,8 @@ def define_nested_list_field(element_field,*,headlist=True,reverse=False,name=No
 # deals with nested list encoded asp.
 # ------------------------------------------------------------------------------
 
-def define_enum_field(parent_field,enum_class,*,name=None):
+def define_enum_field(parent_field: Type[BaseField],
+                      enum_class: Type[enum.Enum],*,name: str=None) -> Type[BaseField]:
     """Factory function that returns a BaseField sub-class for an Enum
 
     Enums are part of the standard library since Python 3.4. This method
@@ -2203,7 +2205,7 @@ class PredicateDefn(object):
 
     """
 
-    def __init__(self, name, field_accessors: List[FieldAccessor], anon=False,sign=None):
+    def __init__(self, name, field_accessors: List[FieldAccessor], anon=False,sign=None) -> None:
         self._name = name
         self._byidx = tuple(field_accessors)
         self._byname = { f.name : f for f in field_accessors }
@@ -2469,23 +2471,29 @@ def _is_bad_predicate_inner_class_declaration(name,obj):
     return obj.__name__ == name
 
 # infer fielddefinition based on a given type
-def _infer_field_definition(type_: Type, module: str) -> Optional[BaseField]:
+def _infer_field_definition(type_: Any, module: str) -> Optional[Type[BaseField]]:
     origin = get_origin(type_)
     args = get_args(type_)
 
     if origin is HeadList:
-        return define_nested_list_field(_infer_field_definition(args[0], module))
+        field = _infer_field_definition(args[0], module)
+        return define_nested_list_field(field) if field else None
     if origin is HeadListReversed:
-        return define_nested_list_field(_infer_field_definition(args[0], module),reverse=True)
+        field = _infer_field_definition(args[0], module)
+        return define_nested_list_field(field, reverse=True) if field else None
     if origin is TailList:
-        return define_nested_list_field(_infer_field_definition(args[0], module),headlist=False)
+        field = _infer_field_definition(args[0], module)
+        return define_nested_list_field(field,headlist=False) if field else None
     if origin is TailListReversed:
-        return define_nested_list_field(_infer_field_definition(args[0], module),headlist=False, reverse=True)
+        field = _infer_field_definition(args[0], module)
+        return define_nested_list_field(field,headlist=False, reverse=True) if field else None
     if origin is Union:
-        return combine_fields([_infer_field_definition(arg, module) for arg in args])
-    if len(args) > 1 and issubclass(origin, Tuple):
+        fields = [_infer_field_definition(arg, module) for arg in args]
+        return combine_fields(fields) if all(fields) else None
+    if len(args) > 1 and origin and issubclass(origin, tuple):
         if len(args) == 2 and args[1] is Ellipsis: # e.g. Tuple[int, ...]
-            return define_flat_list_field(_infer_field_definition(args[0], module))
+            field = _infer_field_definition(args[0], module)
+            return define_flat_list_field(field) if field else None
 
         # not just return a tuple of Fields, but create a Field-Instance and take the type so
         # Tuple[...] can be used within Union
@@ -2495,7 +2503,7 @@ def _infer_field_definition(type_: Type, module: str) -> Optional[BaseField]:
     if issubclass(type_, enum.Enum):
         # if type_ just inherits from Enum is IntegerField, otherwise find appropriate Field
         field = IntegerField if len(type_.__bases__) == 1 else _infer_field_definition(type_.__bases__[0], module)
-        return define_enum_field(field, type_)
+        return define_enum_field(field, type_) if field else None
     if issubclass(type_, int):
         return IntegerField
     if issubclass(type_, str):
@@ -2630,7 +2638,7 @@ def _make_predicatedefn(class_name: str, namespace: Dict[str, Any], meta_dct: Di
 # instances and clingo symbol objects.
 # ------------------------------------------------------------------------------
 
-def _define_field_for_predicate(cls) -> Type[BaseField]:
+def _define_field_for_predicate(cls: Type['Predicate']) -> Type[BaseField]:
     if not issubclass(cls, Predicate):
         raise TypeError(("Class {} is not a Predicate/ComplexTerm "
                          "sub-class").format(cls))
@@ -2819,7 +2827,7 @@ class Predicate(object, metaclass=_PredicateMeta):
 
     # Get the Symbol object using the default symbol system
     @property
-    def symbol(self):
+    def symbol(self) -> AnySymbol:
         """Returns the Symbol object corresponding to the fact.
 
         The type of the object maybe either a clingo.Symbol or noclingo.NoSymbol.
@@ -2838,7 +2846,7 @@ class Predicate(object, metaclass=_PredicateMeta):
         return cls._field
 
     # Clone the object with some differences
-    def clone(self, **kwargs):
+    def clone(self: '_Predicate', **kwargs: Any) -> '_Predicate':
         """Clone the object with some differences.
 
         For any field name that is not one of the parameter keywords the clone
@@ -3007,7 +3015,7 @@ ComplexTerm=Predicate
 # for easy display/printing.
 # ------------------------------------------------------------------------------
 
-def simple_predicate(predicate_name,arity,*,name=None,module=None):
+def simple_predicate(predicate_name: str, arity: int, *,name: str=None, module: str=None) -> Type[Predicate]:
     """Factory function to define a predicate with only RawField arguments.
 
     A helper factory function that takes a name and an arity and returns a

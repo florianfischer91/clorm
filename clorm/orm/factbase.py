@@ -250,7 +250,7 @@ class FactBase(object):
     #--------------------------------------------------------------------------
     # Initiliser
     #--------------------------------------------------------------------------
-    def __init__(self, facts: Optional[Facts]=None, indexes: Optional[Iterable[PredicatePath]]=None) -> None:
+    def __init__(self, facts: Optional[Facts] = None, indexes: Optional[Iterable[PredicatePath]] = None) -> None:
         self._delayed_init=None
         if callable(facts):
             def delayed_init():
@@ -391,7 +391,7 @@ class FactBase(object):
         tmp = [ fm.factset for fm in self._factmaps.values() if fm]
         return list(itertools.chain(*tmp))
 
-    def asp_str(self,*,width: int=0,commented: bool=False,sorted: bool=False) -> str:
+    def asp_str(self, *, width: int = 0, commented: bool = False, sorted: bool = False) -> str:
         """Return a ASP string representation of the fact base.
 
         The generated ASP string representation is syntactically correct ASP
@@ -843,14 +843,14 @@ class Delete(abc.ABC):
 
 class SelectImpl(Select, Generic[_Predicate]):
 
-    def __init__(self, factbase, qspec):
+    def __init__(self, factbase: FactBase, qspec: QuerySpec) -> None:
         self._factbase = factbase
         self._qspec = qspec
 
     #--------------------------------------------------------------------------
     # Add an order_by expression
     #--------------------------------------------------------------------------
-    def where(self, *expressions) -> 'SelectImpl[_Predicate]':
+    def where(self, *expressions: Any) -> 'SelectImpl[_Predicate]':
         if self._qspec.where:
             raise TypeError("Cannot specify 'where' multiple times")
         if not expressions:
@@ -869,7 +869,7 @@ class SelectImpl(Select, Generic[_Predicate]):
     #--------------------------------------------------------------------------
     # Add an order_by expression
     #--------------------------------------------------------------------------
-    def order_by(self, *expressions) -> 'SelectImpl[_Predicate]':
+    def order_by(self, *expressions: Any) -> 'SelectImpl[_Predicate]':
         if self._qspec.order_by:
             raise TypeError("Cannot specify 'order_by' multiple times")
         if not expressions:
@@ -884,7 +884,7 @@ class SelectImpl(Select, Generic[_Predicate]):
     #--------------------------------------------------------------------------
     #
     #--------------------------------------------------------------------------
-    def query_plan(self,*args,**kwargs) -> QueryPlan:
+    def query_plan(self,*args: Any, **kwargs: Any) -> QueryPlan:
         qspec = self._qspec.fill_defaults()
 
         (factsets,factindexes) = \
@@ -897,7 +897,7 @@ class SelectImpl(Select, Generic[_Predicate]):
     # Functions currently mirroring the old interface
     # --------------------------------------------------------------------------
 
-    def get(self, *args, **kwargs) -> List[_Predicate]:
+    def get(self, *args: Any, **kwargs: Any) -> List[_Predicate]:
         qspec = self._qspec
         if args or kwargs:
             if self._qspec.where is None:
@@ -907,7 +907,7 @@ class SelectImpl(Select, Generic[_Predicate]):
         qe = QueryExecutor(self._factbase.factmaps, qspec)
         return list(qe.all())
 
-    def get_unique(self, *args, **kwargs) -> _Predicate:
+    def get_unique(self, *args: Any, **kwargs: Any) -> _Predicate:
         qspec = self._qspec
         if args or kwargs:
             if self._qspec.where is None:
@@ -921,7 +921,7 @@ class SelectImpl(Select, Generic[_Predicate]):
             found = out
         return found
 
-    def count(self, *args, **kwargs) -> int:
+    def count(self, *args: Any, **kwargs: Any) -> int:
         qspec = self._qspec
         if args or kwargs:
             if self._qspec.where is None:
@@ -939,18 +939,18 @@ class SelectImpl(Select, Generic[_Predicate]):
 
 class _Delete(Delete, Generic[_Predicate]):
 
-    def __init__(self, factbase, qspec):
+    def __init__(self, factbase: FactBase, qspec: QuerySpec) -> None:
         self._factbase = factbase
         self._root = qspec.roots[0]
         self._select = SelectImpl(factbase,qspec)
         self._has_where = False
 
-    def where(self, *expressions) -> '_Delete[_Predicate]':
+    def where(self, *expressions: Any) -> '_Delete[_Predicate]':
         self._has_where = True
         self._select = self._select.where(*expressions)
         return self
 
-    def execute(self, *args, **kwargs) -> int:
+    def execute(self, *args: Any, **kwargs: Any) -> int:
         factmap = self._factbase.factmaps[self._root.meta.predicate]
 
         # If there is no where clause then delete everything
@@ -991,14 +991,14 @@ class QueryImpl(Query, Generic[_T]):
     #--------------------------------------------------------------------------
     # Add a join expression
     #--------------------------------------------------------------------------
-    def join(self, *expressions) -> 'QueryImpl[Tuple[_T,...]]':
+    def join(self, *expressions: Any) -> 'QueryImpl[Tuple[_T,...]]':
         join=process_join(expressions, self._qspec.roots)
         return QueryImpl(self._factmaps, self._qspec.newp(join=join))
 
     #--------------------------------------------------------------------------
     # Add an order_by expression
     #--------------------------------------------------------------------------
-    def where(self, *expressions) -> 'QueryImpl[_T]':
+    def where(self, *expressions: Any) -> 'QueryImpl[_T]':
         self._check_join_called_first("where")
 
         if not expressions:
@@ -1015,7 +1015,7 @@ class QueryImpl(Query, Generic[_T]):
     #--------------------------------------------------------------------------
     # Add an orderered() flag
     #--------------------------------------------------------------------------
-    def ordered(self, *expressions) -> 'QueryImpl[_T]':
+    def ordered(self, *expressions: Any) -> 'QueryImpl[_T]':
         self._check_join_called_first("ordered")
         if self._qspec.getp("order_by",None) is not None:
             raise ValueError(("Invalid query 'ordered' declaration conflicts "
@@ -1026,7 +1026,7 @@ class QueryImpl(Query, Generic[_T]):
     #--------------------------------------------------------------------------
     # Add an order_by expression
     #--------------------------------------------------------------------------
-    def order_by(self, *expressions) -> 'QueryImpl[_T]':
+    def order_by(self, *expressions: Any) -> 'QueryImpl[_T]':
         self._check_join_called_first("order_by")
         if not expressions:
             nqspec = self._qspec.newp(order_by=None)   # raise exception
@@ -1078,7 +1078,7 @@ class QueryImpl(Query, Generic[_T]):
     #--------------------------------------------------------------------------
     # Ground - bind
     #--------------------------------------------------------------------------
-    def bind(self,*args,**kwargs) -> 'QueryImpl[_T]':
+    def bind(self,*args: Any,**kwargs: Any) -> 'QueryImpl[_T]':
         self._check_join_called_first("bind")
         nqspec = self._qspec.bindp(*args, **kwargs)
         return QueryImpl(self._factmaps, nqspec)
@@ -1094,7 +1094,7 @@ class QueryImpl(Query, Generic[_T]):
     #--------------------------------------------------------------------------
     # Overide the default heuristic
     #--------------------------------------------------------------------------
-    def heuristic(self, join_order) -> 'Query[_T]':
+    def heuristic(self, join_order) -> 'QueryImpl[_T]':
         nqspec = self._qspec.newp(heuristic=True, joh=join_order)
         return QueryImpl(self._factmaps, nqspec)
 
@@ -1105,7 +1105,7 @@ class QueryImpl(Query, Generic[_T]):
     #--------------------------------------------------------------------------
     # For the user to see what the query plan looks like
     #--------------------------------------------------------------------------
-    def query_plan(self,*args,**kwargs) -> QueryPlan:
+    def query_plan(self,*args: Any,**kwargs: Any) -> QueryPlan:
         self._check_join_called_first("query_plan")
         qspec = self._qspec.fill_defaults()
 
@@ -1156,7 +1156,8 @@ class QueryImpl(Query, Generic[_T]):
     @overload
     def count(self: 'QueryImpl[_T]') -> int:...
 
-    def count(self) -> Union[Iterator[Tuple[Tuple[Unpack[_Ts]], int]], int]:
+    def count(self: Union['QueryImpl[Tuple[Tuple[Unpack[_Ts]], Iterator[Any]]]',
+                          'QueryImpl[_T]']) -> Union[Iterator[Tuple[Tuple[Unpack[_Ts]], int]], int]:
         self._check_join_called_first("count",endpoint=True)
 
         qe = QueryExecutor(self._factmaps, self._qspec)

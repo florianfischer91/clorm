@@ -27,9 +27,12 @@ if TYPE_CHECKING:
 else:
     class HeadList(Generic[_T]):
         pass
+
     class HeadListReversed(Generic[_T]):
         pass
+
     class TailList(Generic[_T]):
         pass
+
     class TailListReversed(Generic[_T]):
         pass
