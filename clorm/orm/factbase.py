@@ -11,7 +11,7 @@ import inspect
 import abc
 import functools
 import itertools
-from typing import TYPE_CHECKING, Any, Callable, Dict, Generic, Iterable, Iterator, List, Optional, Tuple, Type, TypeVar, Union, overload
+from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, Generic, Iterable, Iterator, List, Optional, Tuple, Type, TypeVar, Union, overload
 
 from .core import *
 from .core import get_field_definition, PredicatePath, kwargs_check_keys, \
@@ -56,9 +56,14 @@ __all__ = [
 #------------------------------------------------------------------------------
 Facts = Union[Iterable[Predicate], 'FactBase', Callable[[],Iterable[Predicate]]]
 _T = TypeVar("_T")
-_T1 = TypeVar("_T1")
 _Ts = TypeVarTuple("_Ts")
+_Ts1 = TypeVarTuple("_Ts1")
 _Predicate = TypeVar("_Predicate", bound=Predicate)
+_P1 = TypeVar("_P1", bound=Predicate)
+_P2 = TypeVar("_P2", bound=Predicate)
+_P3 = TypeVar("_P3", bound=Predicate)
+_P4 = TypeVar("_P4", bound=Predicate)
+_P5 = TypeVar("_P5", bound=Predicate)
 
 #------------------------------------------------------------------------------
 # Support function for printing ASP facts: Note: _trim_docstring() is taken from
@@ -349,7 +354,33 @@ class FactBase(object):
 
         return _Delete(self, QuerySpec(roots=roots))
 
-    def query(self, *roots: Type[_Predicate]) -> 'QueryImpl[_Predicate]':
+    @overload
+    def query(self, __p1: Type[_P1]) -> 'QueryImpl[_P1]': ...  # type: ignore  # PEP646 not implemented
+    @overload
+    def query(self, __p1: Type[_P1], __p2: Type[_P2]) -> 'QueryImpl[_P1, _P2]': ...  # type: ignore  # PEP646 not implemented
+    @overload
+    def query(self, __p1: Type[_P1], __p2: Type[_P2], __p3: Type[_P3]) -> 'QueryImpl[_P1, _P2, _P3]': ...  # type: ignore  # PEP646 not implemented
+
+    @overload
+    def query(
+        self,
+        __p1: Type[_P1],
+        __p2: Type[_P2],
+        __p3: Type[_P3],
+        __p4: Type[_P4]
+    ) -> 'QueryImpl[_P1, _P2, _P3, _P4]': ...  # type: ignore  # PEP646 not implemented
+
+    @overload
+    def query(
+        self,
+        __p1: Type[_P1],
+        __p2: Type[_P2],
+        __p3: Type[_P3],
+        __p4: Type[_P4],
+        __p5: Type[_P5]
+    ) -> 'QueryImpl[_P1, _P2, _P3, _P4, _P5]': ...  # type: ignore  # PEP646 not implemented
+
+    def query(self, *roots: Type[Any]) -> 'QueryImpl[Unpack[Tuple[Any,...]]]':  # type: ignore  # PEP646 not implemented
         """Define a query using the new Query API :class:`Query`.
 
         The parameters consist of a predicates (or aliases) to query (like an
@@ -972,7 +1003,7 @@ class _Delete(Delete, Generic[_Predicate]):
 # - factmaps             - dictionary mapping predicate types to FactMap objects
 # - qspec                - a dictionary with query parameters
 #------------------------------------------------------------------------------
-class QueryImpl(Query, Generic[_T]):
+class QueryImpl(Query, Generic[Unpack[_Ts]]):
 
     def __init__(self, factmaps: Dict[str, FactMap], qspec: QuerySpec) -> None:
         self._factmaps = factmaps
@@ -991,14 +1022,14 @@ class QueryImpl(Query, Generic[_T]):
     #--------------------------------------------------------------------------
     # Add a join expression
     #--------------------------------------------------------------------------
-    def join(self, *expressions: Any) -> 'QueryImpl[Tuple[_T,...]]':
+    def join(self, *expressions: Any) -> 'QueryImpl[Tuple[Unpack[_Ts]]]':
         join=process_join(expressions, self._qspec.roots)
         return QueryImpl(self._factmaps, self._qspec.newp(join=join))
 
     #--------------------------------------------------------------------------
     # Add an order_by expression
     #--------------------------------------------------------------------------
-    def where(self, *expressions: Any) -> 'QueryImpl[_T]':
+    def where(self, *expressions: Any) -> 'QueryImpl[Unpack[_Ts]]':
         self._check_join_called_first("where")
 
         if not expressions:
@@ -1015,7 +1046,7 @@ class QueryImpl(Query, Generic[_T]):
     #--------------------------------------------------------------------------
     # Add an orderered() flag
     #--------------------------------------------------------------------------
-    def ordered(self, *expressions: Any) -> 'QueryImpl[_T]':
+    def ordered(self, *expressions: Any) -> 'QueryImpl[Unpack[_Ts]]':
         self._check_join_called_first("ordered")
         if self._qspec.getp("order_by",None) is not None:
             raise ValueError(("Invalid query 'ordered' declaration conflicts "
@@ -1026,7 +1057,7 @@ class QueryImpl(Query, Generic[_T]):
     #--------------------------------------------------------------------------
     # Add an order_by expression
     #--------------------------------------------------------------------------
-    def order_by(self, *expressions: Any) -> 'QueryImpl[_T]':
+    def order_by(self, *expressions: Any) -> 'QueryImpl[Unpack[_Ts]]':
         self._check_join_called_first("order_by")
         if not expressions:
             nqspec = self._qspec.newp(order_by=None)   # raise exception
@@ -1042,7 +1073,10 @@ class QueryImpl(Query, Generic[_T]):
     #--------------------------------------------------------------------------
     # Add a group_by expression
     #--------------------------------------------------------------------------
-    def group_by(self, *expressions: Unpack[_Ts]) -> 'QueryImpl[Tuple[Tuple[Unpack[_Ts]],Iterator[_T]]]':
+    def group_by(
+        self: 'QueryImpl[_T]',
+        *expressions: Unpack[_Ts1]
+    ) -> 'QueryImpl[Tuple[Tuple[Unpack[_Ts1]],Iterator[_T]]]':
         if not expressions:
             nqspec = self._qspec.newp(group_by=None)   # raise exception
         else:
@@ -1054,13 +1088,34 @@ class QueryImpl(Query, Generic[_T]):
     # Explicitly select the elements to output or delete
     #--------------------------------------------------------------------------
     @overload
-    def select(self,func: Callable[..., _T1]) -> 'QueryImpl[_T1]':...
+    def select(self, __p1: Type[_P1]) -> 'QueryImpl[_P1]': ...  # type: ignore  # PEP646 not implemented
+    @overload
+    def select(self, __p1: Type[_P1], __p2: Type[_P2]) -> 'QueryImpl[Tuple[_P1, _P2]]': ...  # type: ignore  # PEP646 not implemented
+    @overload
+    def select(self, __p1: Type[_P1], __p2: Type[_P2], __p3: Type[_P3]) -> 'QueryImpl[Tuple[_P1, _P2, _P3]]': ...  # type: ignore  # PEP646 not implemented
+    @overload
+    def select(
+        self,
+        __p1: Type[_P1],
+        __p2: Type[_P2],
+        __p3: Type[_P3],
+        __p4: Type[_P4]
+    ) -> 'QueryImpl[Tuple[_P1, _P2, _P3, _P4]]': ...  # type: ignore  # PEP646 not implemented
+    @overload
+    def select(
+        self,
+        __p1: Type[_P1],
+        __p2: Type[_P2],
+        __p3: Type[_P3],
+        __p4: Type[_P4],
+        __p5: Type[_P5]
+    ) -> 'QueryImpl[Tuple[_P1, _P2, _P3, _P4, _P5]]': ...  # type: ignore  # PEP646 not implemented
 
     @overload
-    def select(self,*outsig: Unpack[_Ts]) -> 'QueryImpl[Tuple[Unpack[_Ts]]]':...
-    
-    def select(self,*outsig: Union[Callable[..., _T1], Unpack[_Ts]]
-    ) -> 'Union[QueryImpl[_T1], QueryImpl[Tuple[Unpack[_Ts]]]]':
+    def select(self, __select: _T) -> 'QueryImpl[_T]': ...  # type: ignore  # PEP646 not implemented
+    @overload
+    def select(self, *outsig: Unpack[_Ts1]) -> 'QueryImpl[Tuple[Unpack[_Ts1]]]': ...  # type: ignore  # PEP646 not implemented
+    def select(self, *outsig): #TODO fix pylance error because of overloading...
         self._check_join_called_first("select")
         if not outsig:
             raise ValueError("An empty 'select' signature is invalid")
@@ -1070,7 +1125,7 @@ class QueryImpl(Query, Generic[_T]):
     #--------------------------------------------------------------------------
     # The distinct flag
     #--------------------------------------------------------------------------
-    def distinct(self) -> 'QueryImpl[_T]':
+    def distinct(self) -> 'QueryImpl[Unpack[_Ts]]':
         self._check_join_called_first("distinct")
         nqspec = self._qspec.newp(distinct=True)
         return QueryImpl(self._factmaps, nqspec)
@@ -1078,7 +1133,7 @@ class QueryImpl(Query, Generic[_T]):
     #--------------------------------------------------------------------------
     # Ground - bind
     #--------------------------------------------------------------------------
-    def bind(self,*args: Any,**kwargs: Any) -> 'QueryImpl[_T]':
+    def bind(self,*args: Any,**kwargs: Any) -> 'QueryImpl[Unpack[_Ts]]':
         self._check_join_called_first("bind")
         nqspec = self._qspec.bindp(*args, **kwargs)
         return QueryImpl(self._factmaps, nqspec)
@@ -1123,7 +1178,7 @@ class QueryImpl(Query, Generic[_T]):
     #--------------------------------------------------------------------------
     # Select to display all the output of the query
     # --------------------------------------------------------------------------
-    def all(self) -> Iterator[_T]:
+    def all(self: 'QueryImpl[_T]') -> Generator[_T, None, None]:
         self._check_join_called_first("all",endpoint=True)
 
         qe = QueryExecutor(self._factmaps, self._qspec)
@@ -1132,7 +1187,7 @@ class QueryImpl(Query, Generic[_T]):
     #--------------------------------------------------------------------------
     # Show the single element and throw an exception if there is more than one
     # --------------------------------------------------------------------------
-    def singleton(self) -> _T:
+    def singleton(self: 'QueryImpl[_T]') -> _T:
         self._check_join_called_first("singleton",endpoint=True)
 
         qe = QueryExecutor(self._factmaps, self._qspec)
@@ -1150,14 +1205,10 @@ class QueryImpl(Query, Generic[_T]):
     # changes if group_by() has been specified.
     # --------------------------------------------------------------------------
     @overload
-    def count(self: 'QueryImpl[Tuple[Tuple[Unpack[_Ts]], Iterator[Any]]]'
-    ) -> Iterator[Tuple[Tuple[Unpack[_Ts]], int]]:...
-
+    def count(self: 'QueryImpl[Tuple[_T, Iterator[Any]]]') -> Iterator[Tuple[_T, int]]:...
     @overload
-    def count(self: 'QueryImpl[_T]') -> int:...
-
-    def count(self: Union['QueryImpl[Tuple[Tuple[Unpack[_Ts]], Iterator[Any]]]',
-                          'QueryImpl[_T]']) -> Union[Iterator[Tuple[Tuple[Unpack[_Ts]], int]], int]:
+    def count(self) -> int:...
+    def count(self) -> Any:
         self._check_join_called_first("count",endpoint=True)
 
         qe = QueryExecutor(self._factmaps, self._qspec)
@@ -1177,7 +1228,7 @@ class QueryImpl(Query, Generic[_T]):
     #--------------------------------------------------------------------------
     # Return the first element of the query
     # --------------------------------------------------------------------------
-    def first(self) -> _T:
+    def first(self: 'QueryImpl[_T]') -> _T:
         self._check_join_called_first("first",endpoint=True)
 
         qe = QueryExecutor(self._factmaps, self._qspec)
