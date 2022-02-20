@@ -2650,8 +2650,8 @@ def _make_predicatedefn(class_name: str, namespace: Dict[str, Any], meta_dct: Di
 
     fas= []
     idx = 0
-    fields_from_annotations.update(**fields_from_dct)
-    for fname, fdefn in  fields_from_annotations.items():
+    fields = max(fields_from_annotations, fields_from_dct, key=len)
+    for fname, fdefn in  fields.items():
         try:
             fd = get_field_definition(fdefn, module)
             fa = FieldAccessor(fname, idx, fd)

@@ -1504,6 +1504,15 @@ class PredicateTestCase(unittest.TestCase):
             p10 = P10(Raw(Function("test",[String("1")])))
             self.assertEqual(str(p10), "p10(test(\"1\"))")
 
+        class P11(Predicate):
+            a = IntegerField
+            a1: int = IntegerField
+            b: str = StringField
+
+        with self.subTest("preserve order of fields if one is not annoted"):
+            p1 = P11(1,2, "1")
+            self.assertEqual(str(p1), "p11(1,2,\"1\")")
+
     def test_predicate_with_wrong_mixed_annotations_and_Fields(self):
         with self.assertRaises(TypeError, msg="order of fields can't be determined"):
             class P(Predicate):
