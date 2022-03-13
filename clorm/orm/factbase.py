@@ -3,6 +3,7 @@
 # specifically for storing facts (Predicate instances).
 # ------------------------------------------------------------------------------
 
+from collections import defaultdict
 import sys
 import io
 import operator
@@ -11,7 +12,7 @@ import inspect
 import abc
 import functools
 import itertools
-from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, Generic, Iterable, Iterator, List, Optional, Tuple, Type, TypeVar, Union, overload
+from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, Generic, Iterable, Iterator, List, Optional, Tuple, Type, TypeVar, Union, cast, overload
 
 from .core import *
 from .core import get_field_definition, PredicatePath, kwargs_check_keys, \
@@ -56,7 +57,7 @@ _P5 = TypeVar("_P5", bound=Predicate)
 
 _builtin_sorted=sorted
 
-def _format_asp_facts(iterator,output,width):
+def _format_asp_facts(iterator: Iterable[Predicate], output: io.StringIO, width: int) -> None:
     tmp1=""
     for f in iterator:
         fstr="{}.".format(f)
@@ -67,7 +68,7 @@ def _format_asp_facts(iterator,output,width):
             tmp1 = tmp1 + " " + fstr if tmp1 else fstr
     if tmp1: print(tmp1,file=output)
 
-def _trim_docstring(docstring):
+def _trim_docstring(docstring: str) -> str:
     if not docstring:
         return ''
     # Convert tabs to spaces (following the normal Python rules)
@@ -92,7 +93,7 @@ def _trim_docstring(docstring):
     # Return a single string:
     return '\n'.join(trimmed)
 
-def _endstrip(string):
+def _endstrip(string: str) -> str:
     if not string: return
     nl=string[-1]=='\n'
     tmp=string.rstrip()
@@ -106,10 +107,10 @@ def _format_docstring(docstring,output):
         print("% Description:",file=output)
         print(tmpstr,file=output)
 
-def _maxwidth(lines):
+def _maxwidth(lines: Iterable[Any]) -> int:
     return max([len(l) for l in lines])
 
-def _format_commented(fm: FactMap, out):
+def _format_commented(fm: FactMap, out: io.StringIO) -> None:
     pm: PredicateDefn = fm.predicate.meta
     docstring = _trim_docstring(fm.predicate.__doc__) \
         if fm.predicate.__doc__ else ""
@@ -191,11 +192,10 @@ class FactBase(object):
         if indexes is None: indexes=[]
 
         # Create FactMaps for the predicate types with indexed fields
-        grouped = {}
+        grouped: Dict[Type[Predicate], List[Any]] = defaultdict(list)
 
         self._indexes = tuple(indexes)
         for path in self._indexes:
-            if path.meta.predicate not in grouped: grouped[path.meta.predicate] = []
             grouped[path.meta.predicate].append(path)
         self._factmaps = { pt : FactMap(pt, idxs) for pt, idxs in grouped.items() }
 
@@ -203,7 +203,7 @@ class FactBase(object):
         self._add(facts)
 
     # Make sure the FactBase has been initialised
-    def _check_init(self):
+    def _check_init(self) -> None:
         if self._delayed_init: self._delayed_init()  # Check for delayed init
 
     #--------------------------------------------------------------------------
@@ -221,15 +221,15 @@ class FactBase(object):
             raise TypeError(f"'{arg}' is not a Predicate instance")
 
         sorted_facts = sorted(arg, key=lambda x: x.__class__.__name__)
-        for ptype, grouped_facts in itertools.groupby(sorted_facts, lambda x: x.__class__):
-            if not issubclass(ptype, Predicate):
+        for ptype_, grouped_facts in itertools.groupby(sorted_facts, lambda x: x.__class__):
+            if not issubclass(ptype_, Predicate):
                 raise TypeError(f"{list(grouped_facts)} are not Predicate instances")
-            if not ptype in self._factmaps:
-                self._factmaps[ptype] = FactMap(ptype)
-            self._factmaps[ptype].add_facts(grouped_facts)
+            if not ptype_ in self._factmaps:
+                self._factmaps[ptype_] = FactMap(ptype_)
+            self._factmaps[ptype_].add_facts(cast(Iterator[Predicate],grouped_facts))
         return
 
-    def _remove(self, fact, raise_on_missing):
+    def _remove(self, fact: Predicate, raise_on_missing: bool) -> None:
         ptype = type(fact)
         if not isinstance(fact, Predicate) or ptype not in self._factmaps:
             raise KeyError(fact)
@@ -364,7 +364,7 @@ class FactBase(object):
         __p5: Type[_P5]
     ) -> 'QueryImpl[_P1, _P2, _P3, _P4, _P5]': ...  # type: ignore  # PEP646 not implemented
 
-    def query(self, *roots: Type[Any]) -> 'QueryImpl[Unpack[Tuple[Any,...]]]':  # type: ignore  # PEP646 not implemented
+    def query(self, *roots: Type[Predicate]) -> 'QueryImpl[Unpack[Tuple[Predicate,...]]]':  # type: ignore  # PEP646 not implemented
         """Define a query using the new Query API :class:`Query`.
 
         The parameters consist of a predicates (or aliases) to query (like an
@@ -441,7 +441,7 @@ class FactBase(object):
                                     (pt.meta.name, pt.meta.arity,pt.__name__))
             fms = [self._factmaps[n] for n in names]
         else:
-            fms = self._factmaps.values()
+            fms = list(self._factmaps.values())
         for fm in fms:
             if commented:
                 if first: first=False
@@ -609,16 +609,16 @@ class FactBase(object):
     #--------------------------------------------------------------------------
     def union(self,*others: Facts) -> 'FactBase':
         """Implements the set union() function"""
-        others=[o if isinstance(o, self.__class__) else FactBase(o) for o in others]
+        factbases=[o if isinstance(o, self.__class__) else FactBase(o) for o in others]
         self._check_init() # Check for delayed init
-        for o in others: o._check_init()
+        for o in factbases: o._check_init()
 
         fb=FactBase()
         predicates = set(self._factmaps.keys())
-        for o in others: predicates.update(o._factmaps.keys())
+        for o in factbases: predicates.update(o._factmaps.keys())
 
         for p in predicates:
-            pothers=[ o._factmaps[p] for o in others if p in o._factmaps]
+            pothers=[ o._factmaps[p] for o in factbases if p in o._factmaps]
             if p in self._factmaps:
                 fb._factmaps[p] = self._factmaps[p].union(*pothers)
             else:
@@ -627,30 +627,30 @@ class FactBase(object):
 
     def intersection(self,*others: Facts) -> 'FactBase':
         """Implements the set intersection() function"""
-        others=[o if isinstance(o, self.__class__) else FactBase(o) for o in others]
+        factbases=[o if isinstance(o, self.__class__) else FactBase(o) for o in others]
         self._check_init() # Check for delayed init
-        for o in others: o._check_init()
+        for o in factbases: o._check_init()
 
         fb=FactBase()
         predicates = set(self._factmaps.keys())
-        for o in others: predicates.intersection_update(o._factmaps.keys())
+        for o in factbases: predicates.intersection_update(o._factmaps.keys())
 
         for p in predicates:
-            pothers=[ o._factmaps[p] for o in others if p in o._factmaps]
+            pothers=[o._factmaps[p] for o in factbases if p in o._factmaps]
             fb._factmaps[p] = self._factmaps[p].intersection(*pothers)
         return fb
 
     def difference(self,*others: Facts) -> 'FactBase':
         """Implements the set difference() function"""
-        others=[o if isinstance(o, self.__class__) else FactBase(o) for o in others]
+        factbases=[o if isinstance(o, self.__class__) else FactBase(o) for o in others]
         self._check_init() # Check for delayed init
-        for o in others: o._check_init()
+        for o in factbases: o._check_init()
 
         fb=FactBase()
         predicates = set(self._factmaps.keys())
 
         for p in predicates:
-            pothers=[ o._factmaps[p] for o in others if p in o._factmaps]
+            pothers=[ o._factmaps[p] for o in factbases if p in o._factmaps]
             fb._factmaps[p] = self._factmaps[p].difference(*pothers)
         return fb
 
@@ -677,39 +677,38 @@ class FactBase(object):
 
     def update(self,*others: Facts) -> None:
         """Implements the set update() function"""
-        others=[o if isinstance(o, self.__class__) else FactBase(o) for o in others]
+        factbases=[o if isinstance(o, self.__class__) else FactBase(o) for o in others]
         self._check_init() # Check for delayed init
-        for o in others: o._check_init()
+        for o in factbases: o._check_init()
 
-        for o in others:
+        for o in factbases:
             for p,fm in o._factmaps.items():
                 if p in self._factmaps: self._factmaps[p].update(fm)
                 else: self._factmaps[p] = fm.copy()
 
     def intersection_update(self,*others: Facts) -> None:
         """Implements the set intersection_update() function"""
-        others=[o if isinstance(o, self.__class__) else FactBase(o) for o in others]
+        factbases=[o if isinstance(o, self.__class__) else FactBase(o) for o in others]
         self._check_init() # Check for delayed init
-        for o in others: o._check_init()
-        num = len(others)
+        for o in factbases: o._check_init()
 
         predicates = set(self._factmaps.keys())
-        for o in others: predicates.intersection_update(o._factmaps.keys())
+        for o in factbases: predicates.intersection_update(o._factmaps.keys())
         pred_to_delete = set(self._factmaps.keys()) - predicates
 
         for p in pred_to_delete: self._factmaps[p].clear()
         for p in predicates:
-            pothers=[ o._factmaps[p] for o in others if p in o._factmaps]
+            pothers=[ o._factmaps[p] for o in factbases if p in o._factmaps]
             self._factmaps[p].intersection_update(*pothers)
 
     def difference_update(self,*others: Facts) -> None:
         """Implements the set difference_update() function"""
-        others=[o if isinstance(o, self.__class__) else FactBase(o) for o in others]
+        factbases=[o if isinstance(o, self.__class__) else FactBase(o) for o in others]
         self._check_init() # Check for delayed init
-        for o in others: o._check_init()
+        for o in factbases: o._check_init()
 
         for p in self._factmaps.keys():
-            pothers=[ o._factmaps[p] for o in others if p in o._factmaps ]
+            pothers=[ o._factmaps[p] for o in factbases if p in o._factmaps ]
             self._factmaps[p].difference_update(*pothers)
 
     def symmetric_difference_update(self,other: Facts) -> None:
@@ -922,7 +921,7 @@ class SelectImpl(Select, Generic[_Predicate]):
         qe = QueryExecutor(self._factbase.factmaps, qspec)
         return list(qe.all())
 
-    def get_unique(self, *args: Any, **kwargs: Any) -> _Predicate:
+    def get_unique(self, *args: Any, **kwargs: Any) -> Optional[_Predicate]:
         qspec = self._qspec
         if args or kwargs:
             if self._qspec.where is None:
@@ -957,7 +956,7 @@ class _Delete(Delete, Generic[_Predicate]):
     def __init__(self, factbase: FactBase, qspec: QuerySpec) -> None:
         self._factbase = factbase
         self._root = qspec.roots[0]
-        self._select = SelectImpl(factbase,qspec)
+        self._select = SelectImpl[_Predicate](factbase,qspec)
         self._has_where = False
 
     def where(self, *expressions: Any) -> '_Delete[_Predicate]':
@@ -970,7 +969,7 @@ class _Delete(Delete, Generic[_Predicate]):
 
         # If there is no where clause then delete everything
         if not self._has_where:
-            num_deleted = len(factmap.facts())
+            num_deleted = len(factmap.factset)
             factmap.clear()
             return num_deleted
 
@@ -1002,14 +1001,14 @@ else:
 class QueryImpl(_QueryImplGeneric[Unpack[_Ts]]): # type: ignore
 
 
-    def __init__(self, factmaps: Dict[str, FactMap], qspec: QuerySpec) -> None:
+    def __init__(self, factmaps: Dict[Type[Predicate], FactMap], qspec: QuerySpec) -> None:
         self._factmaps = factmaps
         self._qspec = qspec
 
     #--------------------------------------------------------------------------
     # Internal function to test whether a function has been called and add it
     #--------------------------------------------------------------------------
-    def _check_join_called_first(self, name,endpoint=False):
+    def _check_join_called_first(self, name: str, endpoint: bool=False) -> None:
         if self._qspec.join is not None or len(self._qspec.roots) == 1: return
         if endpoint:
             raise ValueError(("A query over multiple predicates is incomplete without "
@@ -1210,7 +1209,7 @@ class QueryImpl(_QueryImplGeneric[Unpack[_Ts]]): # type: ignore
 
         qe = QueryExecutor(self._factmaps, self._qspec)
 
-        def group_by_generator():
+        def group_by_generator() -> Iterator[Tuple[Any, int]]:
             for k, g in qe.all():
                 yield k, sum(1 for _ in g)
 

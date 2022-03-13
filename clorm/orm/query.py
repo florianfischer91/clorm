@@ -12,6 +12,9 @@ import functools
 import itertools
 import inspect
 import enum
+from typing import Any, Dict, Generator, List, Tuple, Type
+
+from clorm.util.oset import OrderedSet
 
 from ..util import OrderedSet as FactSet
 from ..util.tools import all_equal
@@ -1419,7 +1422,7 @@ def normalise_where_expression(qcond):
 #  form of a clauseblock.
 #  ------------------------------------------------------------------------------
 
-def process_where(where_expression, roots=[]):
+def process_where(where_expression: Any, roots: Any=[]) -> ClauseBlock:
     def _prevalidate(w):
         if isinstance(w,QCondition): return w
         if isinstance(w,Comparator): return w
@@ -1557,7 +1560,7 @@ def validate_join_expression(qconds, roots):
 #  paths as both arguments
 #  ------------------------------------------------------------------------------
 
-def process_join(join_expression, roots=[]):
+def process_join(join_expression: Any, roots: Any=[]) -> List[Any]:
     def _prevalidate():
         for j in join_expression:
             if not isinstance(j,QCondition):
@@ -1697,7 +1700,7 @@ def validate_orderby_expression(orderby_expressions, roots=[]):
 # Return an OrderByBlock corresponding to the validated order by expression
 # ------------------------------------------------------------------------------
 
-def process_orderby(orderby_expressions, roots=[]):
+def process_orderby(orderby_expressions: Any, roots: Any=[]) -> OrderByBlock:
     return validate_orderby_expression(orderby_expressions,roots)
 
 # ------------------------------------------------------------------------------
@@ -2053,7 +2056,7 @@ class QueryPlan(object):
             if not jqp.executable: return False
         return True
 
-    def ground(self,*args,**kwargs):
+    def ground(self,*args: Any,**kwargs: Any) -> 'QueryPlan':
         newqpjs = [qpj.ground(*args,**kwargs) for qpj in self._jqps]
         if tuple(newqpjs) == self._jqps: return self
         return QueryPlan(newqpjs)
@@ -2225,7 +2228,7 @@ class QuerySpec(object):
                 "group_by", "tuple", "distinct", "bind", "select",
                 "heuristic", "joh" ]
 
-    def __init__(self,**kwargs):
+    def __init__(self,**kwargs: Any) -> None:
         for k,v in kwargs.items():
             if k not in QuerySpec.allowed:
                 raise ValueError("Trying to set unknown parameter '{}'".format(k))
@@ -2235,7 +2238,7 @@ class QuerySpec(object):
         self._params = dict(kwargs)
 
     # Return a new QuerySpec with added parameters
-    def newp(self, **kwargs):
+    def newp(self, **kwargs: Any) -> 'QuerySpec':
         if not kwargs: return self
         nparams = dict(self._params)
         for k,v in kwargs.items():
@@ -2266,11 +2269,11 @@ class QuerySpec(object):
     # Return the value of a parameter - behaves slightly differently to simply
     # specify the parameter as an attribute because you can return a default
     # value if the parameter is not set.
-    def getp(self,name,default=None):
+    def getp(self,name: str, default: Any=None) -> Any:
         return self._params.get(name,default)
 
 
-    def bindp(self, *args, **kwargs):
+    def bindp(self, *args: Any, **kwargs: Any) -> 'QuerySpec':
         where = self.where
         if where is None:
             raise ValueError("'where' must be specified before binding placeholders")
@@ -2294,7 +2297,7 @@ class QuerySpec(object):
         nwhere = where.ground(*args, **kwargs)
         return self.modp(where=nwhere,bind=True)
 
-    def fill_defaults(self):
+    def fill_defaults(self) -> 'QuerySpec':
         toadd = dict(self._params)
         for n in [ "roots","join","where","order_by" ]:
             v = self._params.get(n,None)
@@ -2456,7 +2459,7 @@ def oppref_join_order(indexed_paths, qspec):
 # and generates a query.
 # ------------------------------------------------------------------------------
 
-def make_query_plan(indexed_paths, qspec):
+def make_query_plan(indexed_paths: Any, qspec: QuerySpec) -> QueryPlan:
     qspec = qspec.fill_defaults()
     root_order = qspec.joh(indexed_paths, qspec)
     return make_query_plan_preordered_roots(indexed_paths, root_order, qspec)
@@ -3407,7 +3410,7 @@ class QueryExecutor(object):
     # roots - the roots
     # qspec - dictionary containing the specification of the query and output
     #--------------------------------------------------------------------------
-    def __init__(self, factmaps, qspec):
+    def __init__(self, factmaps: Dict[Type[Predicate], FactMap], qspec: QuerySpec) -> None:
         self._factmaps = factmaps
         self._qspec = qspec.fill_defaults()
 
@@ -3416,7 +3419,11 @@ class QueryExecutor(object):
     # Support function
     #--------------------------------------------------------------------------
     @classmethod
-    def get_factmap_data(cls, factmaps, qspec):
+    def get_factmap_data(
+        cls,
+        factmaps: Dict[Type[Predicate], FactMap],
+        qspec: QuerySpec
+    ) -> Tuple[Dict[Type[Predicate], OrderedSet], Dict[Any, Any]]:
         roots = qspec.roots
         ptypes = set([ path(r).meta.predicate for r in roots])
         factsets = {}
@@ -3513,7 +3520,7 @@ class QueryExecutor(object):
     # Function to return a generator of the query output
     # --------------------------------------------------------------------------
 
-    def all(self):
+    def all(self) -> Generator[Any, None, None]:
         if self._qspec.distinct and not self._qspec.select:
             raise ValueError("'distinct' flag requires a 'select' projection")
 
@@ -3534,7 +3541,7 @@ class QueryExecutor(object):
     # and adds the selected fact to that set. The delete the facts in each set.
     # --------------------------------------------------------------------------
 
-    def delete(self):
+    def delete(self) -> int:
         if self._qspec.group_by:
             raise ValueError("'group_by' is incompatible with 'delete'")
         if self._qspec.distinct:

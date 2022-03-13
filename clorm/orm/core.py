@@ -438,7 +438,7 @@ def not_(*conditions):
     '''Return a boolean condition that is the negation of the input condition'''
     return QCondition(operator.not_,*conditions)
 
-def and_(*conditions):
+def and_(*conditions: Any) -> QCondition:
     '''Return a the conjunction of two of more conditions'''
     return functools.reduce((lambda x,y: QCondition(operator.and_,x,y)),conditions)
 
@@ -3065,7 +3065,7 @@ def simple_predicate(predicate_name: str, arity: int, *,name: str=None, module: 
 # Helper function to check if all the paths in a collection are root paths and
 # return path objects.
 # ------------------------------------------------------------------------------
-def validate_root_paths(paths):
+def validate_root_paths(paths: Iterable[Type[Predicate]]) -> List[PredicatePath]:
     def checkroot(p):
         p = path(p)
         if not p.meta.is_root:

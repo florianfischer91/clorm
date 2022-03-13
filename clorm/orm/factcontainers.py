@@ -11,6 +11,7 @@ import inspect
 import abc
 import functools
 import itertools
+from typing import Iterable, Iterator, Type
 
 from .core import *
 from .core import notcontains, PredicatePath, \
@@ -236,7 +237,7 @@ class FactIndex(object):
 # ordering which is something we don't want.
 # ------------------------------------------------------------------------------
 
-def factset_equality(s1,s2):
+def factset_equality(s1: OrderedSet, s2: OrderedSet) -> bool:
     if len(s1) != len(s2): return False
     for elem in s1:
         if elem not in s2: return False
@@ -264,7 +265,7 @@ def _fm_iterable(other):
     else: return other
 
 class FactMap(object):
-    def __init__(self, ptype: Predicate, indexes=[]):
+    def __init__(self, ptype: Type[Predicate], indexes=[]):
         def clean_path(p):
             p = path(p)
             if hashable_path(p) != hashable_path(p.meta.dealiased):
@@ -299,31 +300,31 @@ class FactMap(object):
             self._factindexes.append(tmpfi)
         self._factindexes = tuple(self._factindexes)
 
-    def add_facts(self, facts):
+    def add_facts(self, facts: Iterator[Predicate]) -> None:
         for f in facts:
             self._factset.add(f)
             for fi in self._factindexes: fi.add(f)
 
-    def add_fact(self, fact):
+    def add_fact(self, fact: Predicate) -> None:
         self._factset.add(fact)
         for fi in self._factindexes: fi.add(fact)
 
     def discard(self,fact):
         self.remove(fact,False)
 
-    def remove(self,fact, raise_on_missing=True):
+    def remove(self, fact: Predicate, raise_on_missing: bool=True) -> None:
         if raise_on_missing: self._factset.remove(fact)
         else: self._factset.discard(fact)
         for fi in self._factindexes:
             fi.remove(fact,raise_on_missing)
 
-    def pop(self):
+    def pop(self) -> Predicate:
         if not self._factset: raise KeyError("Cannot pop() an empty set of facts")
         fact = next(iter(self._factset))
         self.remove(fact)
         return fact
 
-    def clear(self):
+    def clear(self) -> None:
         self._factset.clear()
         for fi in self._factindexes: fi.clear()
 
@@ -345,46 +346,46 @@ class FactMap(object):
     #--------------------------------------------------------------------------
     # Set functions
     #--------------------------------------------------------------------------
-    def union(self,*others):
+    def union(self,*others: 'FactMap') -> 'FactMap':
         nfm = FactMap(self.predicate, self._path2factindex.keys())
         tmpothers = [_fm_iterable(o) for o in others]
         tmp = self.factset.union(*tmpothers)
         nfm.add_facts(tmp)
         return nfm
 
-    def intersection(self,*others):
+    def intersection(self,*others: 'FactMap') -> 'FactMap':
         nfm = FactMap(self.predicate, self._path2factindex.keys())
         tmpothers = [_fm_iterable(o) for o in others]
         tmp = self.factset.intersection(*tmpothers)
         nfm.add_facts(tmp)
         return nfm
 
-    def difference(self,*others):
+    def difference(self,*others: 'FactMap') -> 'FactMap':
         nfm = FactMap(self.predicate, self._path2factindex.keys())
         tmpothers = [_fm_iterable(o) for o in others]
         tmp = self.factset.difference(*tmpothers)
         nfm.add_facts(tmp)
         return nfm
 
-    def symmetric_difference(self,other):
+    def symmetric_difference(self,other: 'FactMap') -> 'FactMap':
         nfm = FactMap(self.predicate, self._path2factindex.keys())
         tmp = self.factset.symmetric_difference(_fm_iterable(other))
         nfm.add_facts(tmp)
         return nfm
 
-    def update(self,*others):
+    def update(self,*others: 'FactMap') -> None:
         self.add_facts(itertools.chain(*[_fm_iterable(o) for o in others]))
 
-    def intersection_update(self,*others):
+    def intersection_update(self,*others: 'FactMap') -> None:
         for f in set(self.factset):
             for o in others:
                 if f not in _fm_iterable(o): self.discard(f)
 
-    def difference_update(self,*others):
+    def difference_update(self,*others: 'FactMap') -> None:
         for f in itertools.chain(*[o.factset for o in others]):
             self.discard(f)
 
-    def symmetric_difference_update(self, other):
+    def symmetric_difference_update(self, other: 'FactMap') -> None:
         to_remove=OrderedSet()
         to_add=OrderedSet()
         for f in self._factset:
@@ -394,7 +395,7 @@ class FactMap(object):
         for f in to_remove: self.discard(f)
         self.add_facts(to_add)
 
-    def copy(self):
+    def copy(self) -> 'FactMap':
         nfm = FactMap(self.predicate, self._path2factindex.keys())
         nfm.add_facts(self.factset)
         return nfm
