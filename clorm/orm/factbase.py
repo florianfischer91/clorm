@@ -94,7 +94,7 @@ def _trim_docstring(docstring: str) -> str:
     return '\n'.join(trimmed)
 
 def _endstrip(string: str) -> str:
-    if not string: return
+    if not string: return ""
     nl=string[-1]=='\n'
     tmp=string.rstrip()
     return tmp + '\n' if nl else tmp
@@ -121,8 +121,9 @@ def _format_commented(fm: FactMap, out: io.StringIO) -> None:
         def build_signature(p: Predicate) -> str:
             args = []
             for pp in p:
-                complex = pp.meta.field.complex
-                args.append(pp._pathseq[1] if not complex else build_signature(complex))
+                field = pp.meta.field
+                complex = field.complex if field else None
+                args.append(cast(str, pp._pathseq[1] if not complex else build_signature(complex)))
             return f"{p.meta.name}({','.join(args)})"
 
         lines = [ "Predicate signature:",
@@ -954,6 +955,8 @@ class SelectImpl(Select, Generic[_Predicate]):
 class _Delete(Delete, Generic[_Predicate]):
 
     def __init__(self, factbase: FactBase, qspec: QuerySpec) -> None:
+        if not qspec.roots:
+            raise ValueError("No roots specified")
         self._factbase = factbase
         self._root = qspec.roots[0]
         self._select = SelectImpl[_Predicate](factbase,qspec)
@@ -995,7 +998,7 @@ if sys.version_info >= (3, 7):
         pass
 else:
 
-    class _QueryImplGeneric(Query, Generic[_T]): # type: ignore
+    class _QueryImplGeneric(Query, Generic[_T]):
         pass
 
 class QueryImpl(_QueryImplGeneric[Unpack[_Ts]]): # type: ignore
@@ -1187,14 +1190,14 @@ class QueryImpl(_QueryImplGeneric[Unpack[_Ts]]): # type: ignore
         self._check_join_called_first("singleton",endpoint=True)
 
         qe = QueryExecutor(self._factmaps, self._qspec)
-        count = 0
-        for out in qe.all():
-            count += 1
-            if count > 1:
-                raise ValueError("Query returned more than a single element")
-        if count == 0:
+        gen = qe.all()
+        first = next(gen, None)
+        if not first:
             raise ValueError("Query has no matching elements")
-        return out
+        second = next(gen, None)
+        if second:
+            raise ValueError("Query returned more than a single element")
+        return first
 
     #--------------------------------------------------------------------------
     # Return the count of elements - Note: the behaviour of what is counted
