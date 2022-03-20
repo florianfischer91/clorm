@@ -140,12 +140,13 @@ class NoSymbol(object):
             self._value = int(value)
             self._hash = hash(self._value)
         elif stype == SymbolType.String:
-            _ = value.encode()
+            if not isinstance(value, str):
+                raise TypeError(f"{value} is not a str")
             self._value = value
             self._hash = hash(self._value)
         elif stype == SymbolType.Function:
             if not isinstance(value, str):
-                raise TypeError("{value} is not a str")
+                raise TypeError(f"{value} is not a str")
             self._sign = bool(sign)
             self._value = str(value)
             self._args = tuple(args)
@@ -201,7 +202,7 @@ class NoSymbol(object):
 
     def __eq__(self, other: object) -> bool:
         """Overloaded boolean operator."""
-        if not isinstance(other, self.__class__) and not isinstance(other, Symbol):
+        if not isinstance(other, (Symbol, NoSymbol)):
             return NotImplemented
         if self.type != other.type:
             return False
@@ -225,7 +226,7 @@ class NoSymbol(object):
 
     def __gt__(self, other: object) -> bool:
         """Overloaded boolean operator."""
-        if not isinstance(other, self.__class__) and not isinstance(other, Symbol):
+        if not isinstance(other, (Symbol, NoSymbol)):
             return NotImplemented
         if self.type != other.type:
             return _SYMBOLTYPE_OID[self.type] > _SYMBOLTYPE_OID[other.type]
@@ -241,7 +242,7 @@ class NoSymbol(object):
             return True
         if self.positive and other.negative:
             return False
-        return self.arguments > tuple(other.arguments)
+        return self.arguments > tuple(other.arguments) # type: ignore
 
     def __le__(self, other: object) -> bool:
         """Overloaded boolean operator."""
@@ -252,7 +253,7 @@ class NoSymbol(object):
 
     def __lt__(self, other: object) -> bool:
         """Overloaded boolean operator."""
-        if not isinstance(other, self.__class__) and not isinstance(other, Symbol):
+        if not isinstance(other, (Symbol, NoSymbol)):
             return NotImplemented
         if self.type != other.type:
             return _SYMBOLTYPE_OID[self.type] < _SYMBOLTYPE_OID[other.type]
@@ -268,7 +269,7 @@ class NoSymbol(object):
             return False
         if self.positive and other.negative:
             return True
-        return self.arguments < tuple(other.arguments)
+        return self.arguments < tuple(other.arguments) # type: ignore
 
     def __ge__(self, other: object) -> bool:
         """Overloaded boolean operator."""
@@ -418,7 +419,7 @@ if typing.TYPE_CHECKING:
     def set_symbol_mode(sm: SymbolMode) -> None:
         ...
 
-    def Function(name: str, arguments: Sequence[Symbol] = [], positive: bool = True) -> AnySymbol:
+    def Function(name: str, arguments: Sequence[AnySymbol] = [], positive: bool = True) -> AnySymbol:
         ...
 
     def String(string: str) -> AnySymbol:
@@ -427,7 +428,7 @@ if typing.TYPE_CHECKING:
     def Number(number: int) -> AnySymbol:
         ...
 
-    def Tuple_(arguments: Sequence[Symbol]) -> AnySymbol:
+    def Tuple_(arguments: Sequence[AnySymbol]) -> AnySymbol:
         ...
 
 else:
