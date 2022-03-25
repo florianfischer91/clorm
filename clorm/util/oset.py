@@ -4,58 +4,61 @@
 # ------------------------------------------------------------------------------
 
 from collections import OrderedDict
+from typing import Any, Generic, Iterable, Iterator, Set, TypeVar, Union
 
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
+_T = TypeVar("_T")
+_S = TypeVar("_S")
 
-class OrderedSet(object):
-    def __init__(self,iterable=[]):
+class OrderedSet(Generic[_T]):
+    def __init__(self, iterable: Iterable[_T]=[]) -> None:
         self._dict=OrderedDict([(elem,True) for elem in iterable])
 
-    def add(self,elem):
+    def add(self, elem: _T) -> None:
         self._dict[elem]=True
 
-    def remove(self,elem):
+    def remove(self, elem: _T) -> None:
         del self._dict[elem]
 
-    def discard(self,elem):
+    def discard(self, elem: _T) -> None:
         self._dict.pop(elem,None)
 
-    def pop(self,last=True):
+    def pop(self, last: bool=True) -> _T:
         return self._dict.popitem(last)[0]
 
-    def clear(self):
+    def clear(self) -> None:
         self._dict.clear()
 
-    def copy(self):
-        tmp = OrderedSet()
+    def copy(self) -> "OrderedSet[_T]":
+        tmp = OrderedSet[_T]()
         tmp._dict = self._dict.copy()
         return tmp
 
     #--------------------------------------------------------------------------
     # Boolean set functions
     #--------------------------------------------------------------------------
-    def isdisjoint(self,other):
+    def isdisjoint(self, other: Iterable[Any]) -> bool:
         for elem in self._dict:
             if elem in other: return False
         for elem in other:
             if elem in self._dict: return False
         return True
 
-    def issubset(self,other):
+    def issubset(self, other: Iterable[Any]) -> bool:
         for elem in self._dict:
             if elem not in other: return False
         return True
 
-    def issuperset(self,other):
+    def issuperset(self, other: Iterable[Any]) -> bool:
         for elem in other:
             if elem not in self._dict: return False
         return True
 
     # Since __eq__ will return False for two OrderedSets with same elements but
     # a different order so provide a separate function.
-    def isequal(self,other):
+    def isequal(self, other: "OrderedSet[_T]") -> bool:
         if not isinstance(other, self.__class__): return NotImplemented
         if len(self) != len(other): return False
         for elem in self._dict.keys():
@@ -65,16 +68,12 @@ class OrderedSet(object):
     #--------------------------------------------------------------------------
     # Set operations
     #--------------------------------------------------------------------------
-    def union(self,*others):
-        tmp=self.copy()
-        for other in others:
-            if isinstance(other, self.__class__):
-                tmp._dict.update(other._dict)
-            else:
-                tmp._dict.update({key:True for key in other})
+    def union(self, *others: Iterable[_S]) -> "OrderedSet[Union[_T, _S]]":
+        tmp= OrderedSet[Union[_T,_S]](self.copy())
+        tmp.update(*others)
         return tmp
 
-    def intersection(self,*others):
+    def intersection(self, *others: Iterable[Any]) -> "OrderedSet[_T]":
         tmp = self.copy()
         if not others: return tmp
         tmp2=set(self._dict.keys()).intersection(*others)
@@ -82,42 +81,42 @@ class OrderedSet(object):
             if key not in tmp2: tmp._dict.pop(key,None)
         return tmp
 
-    def difference(self,*others):
+    def difference(self, *others: Iterable[Any]) -> "OrderedSet[_T]":
         tmp = self.copy()
         if not others: return tmp
-        tmp2 = set()
+        tmp2: Set[Any] = set()
         tmp2.update(*others)
         for key in tmp2: tmp._dict.pop(key,None)
         return tmp
 
-    def symmetric_difference(self,other):
+    def symmetric_difference(self, other: Iterable[_T]) -> "OrderedSet[_T]":
         tmp = set(self._dict.keys())
         tmp.intersection_update(other)
         tmp2 = self.union(other)
         for key in tmp: del tmp2._dict[key]
         return tmp2
 
-    def update(self,*others):
+    def update(self, *others: Iterable[_T]) -> None:
         for other in others:
             if isinstance(other, self.__class__):
                 self._dict.update(other._dict)
             else:
                 self._dict.update({key:True for key in other})
 
-    def intersection_update(self,*others):
+    def intersection_update(self, *others: Iterable[Any]) -> None:
         if not others: return
         tmp = set(self._dict.keys())
         tmp2=set(tmp).intersection(*others)
         for key in tmp:
             if key not in tmp2: del self._dict[key]
 
-    def difference_update(self,*others):
+    def difference_update(self, *others: Iterable[Any]) -> None:
         if not others: return
-        tmp2 = set()
+        tmp2: Set[Any] = set()
         tmp2.update(*others)
         for key in tmp2: self._dict.pop(key,None)
 
-    def symmetric_difference_update(self, other):
+    def symmetric_difference_update(self, other: Iterable[_T]) -> None:
         tmp = set(self._dict.keys())
         tmp.intersection_update(other)
         self.update(other)
@@ -128,22 +127,22 @@ class OrderedSet(object):
     # Special functions to support set and container operations
     #--------------------------------------------------------------------------
 
-    def __contains__(self, elem):
+    def __contains__(self, elem: object) -> bool:
         """Implemement set 'in' operator."""
         return elem in self._dict
 
-    def __bool__(self):
+    def __bool__(self) -> bool:
         """Implemement set bool operator."""
         return bool(self._dict)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._dict)
 
-    def __iter__(self):
-        for k,v in self._dict.items():
+    def __iter__(self) -> Iterator[_T]:
+        for k in self._dict.keys():
             yield k
 
-    def __eq__(self, other):
+    def __eq__(self, other: object) -> bool:
         # Not sure why this shouldn't raise a TypeError for set but I want the
         # behaviour to be consistent with standard set.
         """Overloaded boolean operator."""
