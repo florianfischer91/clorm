@@ -11,7 +11,7 @@ import inspect
 import abc
 import functools
 import itertools
-from typing import Iterable, Iterator, Type
+from typing import Dict, Iterable, Iterator, Type
 
 from .core import *
 from .core import notcontains, PredicatePath, \
@@ -281,7 +281,7 @@ class FactMap(object):
 
         self._ptype = ptype
         self._factset = FactSet()
-        self._path2factindex = collections.OrderedDict()
+        self._path2factindex: Dict[PredicatePath.Hashable, FactIndex] = collections.OrderedDict()
         self._factindexes = []
 
         # Validate the paths to be indexed

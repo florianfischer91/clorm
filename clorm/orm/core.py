@@ -22,6 +22,7 @@ import sys
 import typing
 import re
 import uuid
+from build.lib.clorm.orm.query import ClauseBlock, ComparisonCallable, Placeholder
 
 from clorm.orm.types import ConstantStr, HeadList, HeadListReversed, TailList, TailListReversed
 
@@ -33,7 +34,7 @@ from .templating import (expand_template, PREDICATE_TEMPLATE,
                          NO_DEFAULTS_TEMPLATE, ASSIGN_DEFAULT_TEMPLATE,
                          ASSIGN_COMPLEX_TEMPLATE, PREDICATE_UNIFY_DOCSTRING)
 
-from typing import ( TYPE_CHECKING, Any, Callable, ClassVar, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple,
+from typing import ( TYPE_CHECKING, Any, Callable, ClassVar, Dict, Iterable, Iterator, List, Literal, Optional, Sequence, Set, Tuple,
                      Type, TypeVar, Union, overload, cast )
 
 
@@ -191,19 +192,19 @@ class ClormError(Exception):
 class Comparator(abc.ABC):
 
     @abc.abstractmethod
-    def ground(self,*args,**kwargs): pass
+    def ground(self,*args: Any, **kwargs: Any) -> 'Comparator': pass
 
     @abc.abstractmethod
-    def fixed(self): pass
+    def fixed(self) -> 'Comparator': pass
 
     @abc.abstractmethod
     def negate(self): pass
 
     @abc.abstractmethod
-    def dealias(self): pass
+    def dealias(self) -> 'Comparator': pass
 
     @abc.abstractmethod
-    def make_callable(self, root_signature): pass
+    def make_callable(self, root_signature: Any) -> ComparisonCallable: pass
 
     @property
     @abc.abstractmethod
@@ -211,15 +212,15 @@ class Comparator(abc.ABC):
 
     @property
     @abc.abstractmethod
-    def paths(self): pass
+    def paths(self) -> Tuple['PredicatePath', ...] : pass
 
     @property
     @abc.abstractmethod
-    def placeholders(self): pass
+    def placeholders(self) -> Set[Placeholder]: pass
 
     @property
     @abc.abstractmethod
-    def roots(self): pass
+    def roots(self) -> Tuple['PredicatePath', ...]: pass
 
     @property
     @abc.abstractmethod
@@ -936,6 +937,17 @@ def path(arg: PathArg, exception: bool=True) -> Optional[PredicatePath]:
 #------------------------------------------------------------------------------
 # API function to return the PredicatePath.Hashable instance for a path
 # ------------------------------------------------------------------------------
+
+_PPH = TypeVar('_PPH', bound=PredicatePath.Hashable)
+
+@overload
+def hashable_path(arg: _PPH) -> _PPH: ...
+
+@overload
+def hashable_path(arg: PredicatePath) -> PredicatePath.Hashable: ...
+
+@overload
+def hashable_path(arg: Type['Predicate']) -> PredicatePath.Hashable: ...
 
 def hashable_path(arg,exception=True):
     '''Return a :class:`PredicatePath.Hashable` instance for a :class:`PredicatePath` or :clss:`Predicate` sub-class.

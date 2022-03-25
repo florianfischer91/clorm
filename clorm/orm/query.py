@@ -6,21 +6,19 @@ import io
 import sys
 import operator
 import collections
-import bisect
 import abc
-import functools
 import itertools
 import inspect
 import enum
-from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, List, Optional, Tuple, Type
+from typing import (TYPE_CHECKING, Any, Callable, Dict, Generator, Iterable, Iterator, List,
+                    Optional, Set, Tuple, Type, TypeVar, Union, cast, overload)
 
 from clorm.util.oset import OrderedSet
 
 from ..util import OrderedSet as FactSet
-from ..util.tools import all_equal
 from .core import *
-from .core import get_field_definition, QCondition, PredicatePath, \
-    validate_root_paths, kwargs_check_keys, trueall, falseall, notcontains
+from .core import QCondition, PredicatePath, \
+    kwargs_check_keys, trueall, falseall, notcontains
 from .factcontainers import FactSet, FactIndex, FactMap
 
 __all__ = [
@@ -724,8 +722,7 @@ class FunctionComparator(Comparator):
                                   "consist of predicate paths"))
 
         # if there is an assigned ordereddict then check the keys
-        if self._assignment is not None:
-            self._check_assignment()
+        self._check_assignment()
 
         # Used for the hash function
         if self._assignment:
@@ -739,6 +736,8 @@ class FunctionComparator(Comparator):
     # assigment is non-None.
     # -------------------------------------------------------------------------
     def _check_assignment(self):
+        if self._assignment is None:
+            return
         assignmentkeys=set(list(self._assignment.keys()))
         funcsigkeys=set(list(self._funcsig.keys()))
         tmp = assignmentkeys-funcsigkeys
@@ -1035,7 +1034,7 @@ def validate_where_expression(qcond, roots=[]):
         if isinstance(cond,Comparator): return False
         if isinstance(cond,QCondition): return False
         if callable(cond):
-            raise TYpeError(("Internal bug: invalid static test "
+            raise TypeError(("Internal bug: invalid static test "
                              "with callable: {}").format(cond))
         return True
 
@@ -1187,9 +1186,11 @@ def where_expression_to_cnf(qcond):
 # A Clause is a list of comparisons that should be interpreted as a disjunction.
 # ------------------------------------------------------------------------------
 
+C = TypeVar("C", bound=Comparator)
+
 class Clause(object):
 
-    def __init__(self, comparators):
+    def __init__(self, comparators: Tuple[Comparator, ...]) -> None:
         if not comparators:
             raise ValueError("Empty list of comparison expressions")
         for comp in comparators:
@@ -1236,7 +1237,7 @@ class Clause(object):
         return True
 
     def dealias(self):
-        newcomps = [ c.dealias() for c in self._comparators]
+        newcomps = tuple([ c.dealias() for c in self._comparators])
         if newcomps == self._comparators: return self
         return Clause(newcomps)
 
@@ -1284,7 +1285,7 @@ class Clause(object):
 
 class ClauseBlock(object):
 
-    def __init__(self, clauses=[]):
+    def __init__(self, clauses: Iterable[Clause]=[]):
         self._clauses = tuple(clauses)
         if not clauses:
             raise ValueError("Empty list of clauses")
@@ -1384,7 +1385,7 @@ class ClauseBlock(object):
 # ------------------------------------------------------------------------------
 def normalise_where_expression(qcond):
     NEWCL = "new_clause"
-    stack=[NEWCL]
+    stack =[NEWCL]
 
     def is_leaf(arg):
         return isinstance(arg, Comparator)
@@ -1400,14 +1401,14 @@ def normalise_where_expression(qcond):
 
     def build_clauses():
         clauses = []
-        tmp = []
+        tmp: List[Comparator] = []
         for a in stack:
             if a == NEWCL:
-                if tmp: clauses.append(Clause(tmp))
+                if tmp: clauses.append(Clause(tuple(tmp)))
                 tmp = []
             elif a != NEWCL:
-                tmp.append(a)
-        if tmp: clauses.append(Clause(tmp))
+                tmp.append(cast(Comparator, a))
+        if tmp: clauses.append(Clause(tuple(tmp)))
         return clauses
 
     stack.append(NEWCL)
@@ -1621,7 +1622,7 @@ def asc(pth):
 # ------------------------------------------------------------------------------
 
 class OrderByBlock(object):
-    def __init__(self,orderbys=[]):
+    def __init__(self,orderbys: Iterable['OrderBy']=[]):
         self._orderbys = tuple(orderbys)
         self._paths = tuple([path(ob.path) for ob in self._orderbys])
 #        if not orderbys:
@@ -1766,8 +1767,10 @@ def make_prejoin_pair(indexed_paths, clauseblock):
 # operator preference and the orderby statements). Returns a pair that is the
 # chosen join and the rest of the joins added to the input clauseblock.
 # ------------------------------------------------------------------------------
-def make_join_pair(joins, clauseblock, orderbys=[]):
-    opaths=set([hashable_path(ob.path) for ob in orderbys])
+def make_join_pair(joins: List[StandardComparator],
+                   clauseblock: Optional[ClauseBlock],
+                   orderbys: Optional[OrderByBlock]=None) -> Tuple[Optional[StandardComparator], Optional[ClauseBlock]]:
+    opaths=set([hashable_path(ob.path) for ob in orderbys]) if orderbys else set()
     def num(sc):
         return len(opaths & (set([hashable_path(p) for p in sc.paths])))
 
@@ -1776,9 +1779,9 @@ def make_join_pair(joins, clauseblock, orderbys=[]):
     joinsc = joins[0]
     remainder = joins[1:]
     if remainder:
-        remainder = ClauseBlock([Clause([sc]) for sc in remainder])
-        if clauseblock: return (joinsc, clauseblock + remainder)
-        else: return (joinsc, remainder)
+        block = ClauseBlock([Clause(tuple([sc])) for sc in remainder])
+        if clauseblock: return (joinsc, clauseblock + block)
+        else: return (joinsc, block)
     else:
         if clauseblock: return (joinsc, clauseblock)
         else: return (joinsc, None)
@@ -2028,10 +2031,10 @@ class JoinQueryPlan(object):
 # ------------------------------------------------------------------------------
 
 class QueryPlan(object):
-    def __init__(self, subplans):
+    def __init__(self, subplans: Iterable[JoinQueryPlan]) -> None:
         if not subplans:
             raise ValueError("An empty QueryPlan is not valid")
-        sig = []
+        sig: List[PredicatePath.Hashable] = []
         for jqp in subplans:
             insig = [hashable_path(rp) for rp in jqp.input_signature]
             if sig != insig:
@@ -2068,7 +2071,12 @@ class QueryPlan(object):
     def __len__(self):
         return len(self._jqps)
 
-    def __getitem__(self, idx):
+    @overload
+    def __getitem__(self, idx: int) -> JoinQueryPlan: ...
+    @overload
+    def __getitem__(self, idx: slice) -> Tuple[JoinQueryPlan,...]: ...
+
+    def __getitem__(self, idx: Union[int, slice]) -> Union[JoinQueryPlan, Tuple[JoinQueryPlan, ...]]:
         return self._jqps[idx]
 
     def __iter__(self):
@@ -2159,10 +2167,12 @@ def merge_orderby_partitions(root_join_order, partitions):
     root_join_order = [ hashable_path(r) for r in root_join_order ]
 
     # Find the last (from the end) non-root partition
-    for nridx,part in reversed(list(enumerate(partitions))):
+    nridx = 0
+    for idx,part in reversed(list(enumerate(partitions))):
         if part:
             hroots = [ hashable_path(r) for r in part.roots ]
-            if len(hroots) > 1 or hroots[0] != root_join_order[nridx]:
+            if len(hroots) > 1 or hroots[0] != root_join_order[idx]:
+                nridx = idx
                 break
     if nridx == 0: return partitions
 
@@ -2237,7 +2247,9 @@ class QuerySpec(object):
         tuple: bool = False
         distinct: bool = False
         heuristic: bool = False
-        joh: Callable[[Any, "QuerySpec"], Any]
+        @staticmethod
+        def joh(index_paths: Iterable[PredicatePath.Hashable], qspec: "QuerySpec") -> List[PredicatePath]:
+            ...
         ordered: bool = False
         select: Optional[Tuple[Type[Predicate], ...]] = None
 
@@ -2342,31 +2354,19 @@ class QuerySpec(object):
         return repr(self._params)
 
 
-# Replace any None with a []
-def fix_query_spec(inspec):
-    join = inspec.join if inspec.join else []
-    where = inspec.where if inspec.where else []
-    order_by = inspec.order_by if inspec.order_by else []
-    return QuerySpec(roots=inspec.roots, join=join,
-                     where=where, order_by=order_by)
-
 # ------------------------------------------------------------------------------
 # Takes a list of paths that have an index, then based on a
 # list of root paths and a query specification, builds the queryplan.
 # ------------------------------------------------------------------------------
 
-def make_query_plan_preordered_roots(indexed_paths, root_join_order,
-                                     qspec):
+def make_query_plan_preordered_roots(indexed_paths: Iterable[PredicatePath.Hashable],
+                                     root_join_order: List[PredicatePath],
+                                     qspec: QuerySpec) -> QueryPlan:
 
-    qspec = fix_query_spec(qspec)
-    joins = qspec.join
-    whereclauses = qspec.where
-    orderbys = qspec.order_by
-
-    joinset=set(joins)
-    clauseset=set(whereclauses)
+    joinset=set(qspec.join) if qspec.join else set([])
+    clauseset=set(qspec.where) if qspec.where else set([])
     visited=set({})
-    orderbys=list(orderbys)
+    orderbys=list(qspec.order_by) if qspec.order_by else []
 
     if not root_join_order:
         raise ValueError("Cannot make query plan with empty root join order")
@@ -2390,12 +2390,12 @@ def make_query_plan_preordered_roots(indexed_paths, root_join_order,
     # comparator and clauses that only reference previous plans in the list.
     output=[]
     for idx,(root,rorderbys) in enumerate(zip(root_join_order,orderbygroups)):
-        if rorderbys: rorderbys = OrderByBlock(rorderbys)
+        rorderbys = OrderByBlock(rorderbys) if rorderbys else None
         visited.add(hashable_path(root))
         rpjoins = visitedsubset(visited, joinset)
         rpclauses = visitedsubset(visited, clauseset)
-        if rpclauses: rpclauses = ClauseBlock(rpclauses)
-        joinsc, rpclauses = make_join_pair(rpjoins, rpclauses,rorderbys)
+        rpclauses = ClauseBlock(rpclauses) if rpclauses else None
+        joinsc, rpclauses = make_join_pair(rpjoins, rpclauses, rorderbys)
         if not rpclauses: rpclauses = []
         rpjoins = [joinsc] if joinsc else []
 
@@ -2472,7 +2472,7 @@ def oppref_join_order(indexed_paths, qspec):
 # and generates a query.
 # ------------------------------------------------------------------------------
 
-def make_query_plan(indexed_paths: Any, qspec: QuerySpec) -> QueryPlan:
+def make_query_plan(indexed_paths: Iterable[PredicatePath.Hashable], qspec: QuerySpec) -> QueryPlan:
     qspec = qspec.fill_defaults()
     root_order = qspec.joh(indexed_paths, qspec)
     return make_query_plan_preordered_roots(indexed_paths, root_order, qspec)
@@ -2520,11 +2520,9 @@ class InQuerySorter(object):
 
     # Sort an iterable input and return an output list
     def sorted(self, input):
-        for idx, (kf, reverse) in enumerate(self._sorter):
-            if idx == 0:
-                outlist = sorted(input,key=kf,reverse=reverse)
-            else:
-                outlist.sort(key=kf,reverse=reverse)
+        outlist = list(input)
+        for (kf, reverse) in self._sorter:
+            outlist.sort(key=kf,reverse=reverse)
         return outlist
 
 # ------------------------------------------------------------------------------
@@ -2590,10 +2588,7 @@ def make_first_join_query(jqp, factsets, factindexes):
     elif jqp.postjoin_orderbys:
         iqs = InQuerySorter(jqp.postjoin_orderbys,(jqp.root,))
 
-    def sorted_query():
-        return iqs.sorted(base_query())
-    if iqs: return sorted_query
-    else: return base_query
+    return (lambda: iter(iqs.sorted(base_query()))) if iqs else base_query
 
 # ------------------------------------------------------------------------------
 # Returns a function that takes no arguments and returns a populated data
@@ -2606,7 +2601,11 @@ def make_first_join_query(jqp, factsets, factindexes):
 # special case.
 # ------------------------------------------------------------------------------
 
-def make_prejoin_query_source(jqp, factsets, factindexes):
+def make_prejoin_query_source(
+    jqp: JoinQueryPlan,
+    factsets: Dict[Type[Predicate], FactSet],
+    factindexes: Dict[PredicatePath.Hashable, FactIndex]
+) -> Callable[[], Union[FactIndex, FactSet, List[Any]]]:
     pjk  = jqp.prejoin_key_clause
     pjc  = jqp.prejoin_clauses
     pjob = jqp.prejoin_orderbys
@@ -2665,7 +2664,7 @@ def make_prejoin_query_source(jqp, factsets, factindexes):
     # (using a FactIndex if there is a join key or a list otherwise). If there
     # is no pjk or pjc but there is a key then use an existing FactIndex if
     # there is one or create it.
-    def query_source():
+    def query_source() -> Union[FactIndex, FactSet, List[Any]]:
         if jk:
             if pjc:
                 fi = FactIndex(path(jk_key_path))
@@ -2676,8 +2675,9 @@ def make_prejoin_query_source(jqp, factsets, factindexes):
                 for (f,) in query_pjk(): fi.add(f)
                 return fi
             else:
-                fi = factindexes.get(hashable_path(jk_key_path),None)
-                if fi: return fi
+                hpath = hashable_path(jk_key_path)
+                if hpath in factindexes:
+                    return factindexes[hpath]
                 fi = FactIndex(path(jk_key_path))
                 for f in factset: fi.add(f)
                 return fi
@@ -2691,14 +2691,13 @@ def make_prejoin_query_source(jqp, factsets, factindexes):
             if not source and pjob:
                 if len(pjob) == 1:
                     pjo = pjob[0]
-                    fi = factindexes.get(hashable_path(pjo.path),None)
-                    if fi and pjo.asc: return fi
-                    elif fi: return list(reversed(fi))
-
-            if source is None: source = factset
-
+                    hpath = hashable_path(pjo.path)
+                    if hpath in factindexes:
+                        fi = factindexes[hpath]
+                        return fi if pjo.asc else list(reversed(fi))
+            assert pjiqs
             # If there is only one sort order use attrgetter
-            return pjiqs.sorted(source)
+            return pjiqs.sorted(factset if source is None else source)
 
     return query_source
 
@@ -2708,7 +2707,11 @@ def make_prejoin_query_source(jqp, factsets, factindexes):
 # - factindexes - a dictionary mapping a hashable_path to a factindex
 # ------------------------------------------------------------------------------
 
-def make_chained_join_query(jqp, inquery, factsets, factindexes):
+def make_chained_join_query(
+    jqp: JoinQueryPlan,
+    inquery: Callable[[], Generator[Any, None, None]],
+    factsets: Dict[Type[Predicate], FactSet],
+    factindexes: Dict[PredicatePath.Hashable, FactIndex]) -> Callable[[], Iterator[Any]]:
 
     if not jqp.input_signature:
         raise ValueError(("A non-first JoinQueryPlan must have a non-empty input "
@@ -2734,14 +2737,18 @@ def make_chained_join_query(jqp, inquery, factsets, factindexes):
         jc_check = lambda _: True
 
     def query_jk():
+        assert jk
         operator = jk.operator
         align_query_input = make_input_alignment_functor(
             jqp.input_signature,(jk.args[1],))
         fi = query_source()
+        assert isinstance(fi, FactIndex)
         for intuple in inquery():
             v, = align_query_input(intuple)
             result = list(fi.find(operator,v))
-            if prej_order: prej_iqs.listsort(result)
+            if prej_order:
+                assert prej_iqs
+                prej_iqs.listsort(result)
             for f in result:
                 out = tuple(intuple + (f,))
                 if jc_check(out): yield out
@@ -2769,19 +2776,20 @@ def make_chained_join_query(jqp, inquery, factsets, factindexes):
 # query object is a Python generator function that takes no arguments.
 # ------------------------------------------------------------------------------
 
-def make_query(qp, factsets, factindexes):
+def make_query(qp: QueryPlan,
+               factsets: Dict[Type[Predicate], OrderedSet],
+               factindexes: Dict[Any, Any]) -> Callable[[], Iterator[Any]]:
     if qp.placeholders:
         raise ValueError(("Cannot execute an ungrounded query. Missing values "
                           "for placeholders: "
                           "{}").format(", ".join([str(p) for p in qp.placeholders])))
-    query = None
-    for idx,jqp in enumerate(qp):
-        if not query:
-            query = make_first_join_query(
-                jqp,factsets,factindexes)
-        else:
+    query = make_first_join_query(
+                qp[0],factsets,factindexes)
+    if len(qp) > 0:
+        for jqp in qp[1:]:
             query = make_chained_join_query(
                 jqp,query,factsets,factindexes)
+
     return query
 
 
@@ -2817,7 +2825,7 @@ def make_outputter(insig,outsig):
             elif callable(out):
                 metasig.append(lambda x,f=out: f(*x))
             else:
-                metasign.append(lambda x, out=out: out)
+                metasig.append(lambda x, out=out: out)
 
         maf=tuple(metasig)
         return lambda intuple, maf=maf: tuple(af(intuple) for af in maf)
@@ -3288,7 +3296,7 @@ class Query(abc.ABC):
     # Select to display all the output of the query
     # --------------------------------------------------------------------------
     @abc.abstractmethod
-    def all(self):
+    def all(self) -> Generator[Any, None, None]:
         """Returns a generator that iteratively executes the query.
 
         Note. This call doesn't execute the query itself. The query is executed
@@ -3408,7 +3416,8 @@ class Query(abc.ABC):
     # Internal API property
     #--------------------------------------------------------------------------
     @property
-    def qspec(self): pass
+    def qspec(self) -> QuerySpec:
+        ...
 
 
 #------------------------------------------------------------------------------
@@ -3436,15 +3445,15 @@ class QueryExecutor(object):
         cls,
         factmaps: Dict[Type[Predicate], FactMap],
         qspec: QuerySpec
-    ) -> Tuple[Dict[Type[Predicate], OrderedSet], Dict[Any, Any]]:
-        roots = qspec.roots
+    ) -> Tuple[Dict[Type[Predicate], FactSet], Dict[PredicatePath.Hashable, FactIndex]]:
+        roots = qspec.roots if qspec.roots else []
         ptypes = set([ path(r).meta.predicate for r in roots])
-        factsets = {}
-        factindexes = {}
+        factsets: Dict[Type[Predicate], FactSet] = {}
+        factindexes: Dict[PredicatePath.Hashable, FactIndex] = {}
         for ptype in ptypes:
             fm =factmaps[ptype]
             factsets[ptype] = fm.factset
-            for hpth, fi in fm.path2factindex.items(): factindexes[hpth] = fi
+            factindexes.update(fm.path2factindex)
         return (factsets,factindexes)
 
     # --------------------------------------------------------------------------
@@ -3520,8 +3529,10 @@ class QueryExecutor(object):
         if qspec.order_by:
             iqs=InQuerySorter(OrderByBlock(qspec.order_by),
                               self._qplan.output_signature)
-        unwrapkey = len(qspec.group_by) == 1 and not qspec.tuple
 
+        unwrapkey = qspec.group_by and len(qspec.group_by) == 1 and not qspec.tuple
+        if qspec.group_by is None:
+            raise TypeError("group_by should not be None here")
         group_by_keyfunc = make_input_alignment_functor(
             self._qplan.output_signature, qspec.group_by.paths)
         for k,g in itertools.groupby(self._query(), group_by_keyfunc):
@@ -3546,8 +3557,7 @@ class QueryExecutor(object):
         self._unwrap = not self._qspec.tuple and len(outsig) == 1
         self._distinct = self._qspec.distinct
 
-        if len(self._qspec.group_by) > 0: return self._group_by_all()
-        else: return self._all()
+        return self._group_by_all() if self._qspec.group_by else self._all()
 
     # --------------------------------------------------------------------------
     # Delete a selection of facts. Maintains a set for each predicate type
@@ -3561,7 +3571,8 @@ class QueryExecutor(object):
             raise ValueError("'distinct' is incompatible with 'delete'")
         if self._qspec.tuple:
             raise ValueError("'tuple' is incompatible with 'delete'")
-
+        if self._qspec.roots is None:
+            raise ValueError("roots should not be None")
         (self._qplan,self._query) = self._make_plan_and_query()
 
         selection = self._qspec.select
@@ -3578,10 +3589,7 @@ class QueryExecutor(object):
 
         # Find the roots to delete and generate a set of actions that are
         # executed to add to a delete set
-        deletesets = {}
-        for r in subroots:
-            pr = path(r)
-            deletesets[pr.meta.predicate] = set()
+        deletesets: Dict[Type[Predicate], Set] = {path(r).meta.predicate: set() for r in subroots}
 
         actions = []
         for out in self._qplan.output_signature:
@@ -3590,7 +3598,7 @@ class QueryExecutor(object):
                 ds = deletesets[out.meta.predicate]
                 actions.append(lambda x, ds=ds: ds.add(x))
             else:
-                actions.append(lambda x : None)
+                actions.append(lambda x, a=None : None)
 
         # Running the query adds the facts to the appropriate delete set
         for input in self._query():
