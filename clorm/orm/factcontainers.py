@@ -3,19 +3,14 @@
 # FactMap.
 # ------------------------------------------------------------------------------
 
-import io
 import operator
 import collections
 import bisect
-import inspect
-import abc
-import functools
 import itertools
-from typing import Dict, Iterable, Iterator, Type
+from typing import Any, Dict, Generic, Iterable, Tuple, Type, TypeVar
 
 from .core import *
-from .core import notcontains, PredicatePath, \
-    get_field_definition, kwargs_check_keys
+from .core import notcontains, PredicatePath
 
 # ------------------------------------------------------------------------------
 # In order to implement FactBase I originally used the built in 'set'
@@ -58,6 +53,7 @@ __all__ = [
 #------------------------------------------------------------------------------
 # Global
 #------------------------------------------------------------------------------
+_P = TypeVar('_P', bound=Predicate)
 
 #------------------------------------------------------------------------------
 # FactIndex indexes facts by a given field
@@ -264,8 +260,8 @@ def _fm_iterable(other):
     if isinstance(other, FactMap): return other.factset
     else: return other
 
-class FactMap(object):
-    def __init__(self, ptype: Type[Predicate], indexes=[]):
+class FactMap(Generic[_P]):
+    def __init__(self, ptype: Type[_P], indexes: Iterable[Any]=[]) -> None:
         def clean_path(p):
             p = path(p)
             if hashable_path(p) != hashable_path(p.meta.dealiased):
@@ -280,13 +276,12 @@ class FactMap(object):
             return hashable_path(p)
 
         self._ptype = ptype
-        self._factset = FactSet()
+        self._factset: FactSet[_P] = FactSet()
         self._path2factindex: Dict[PredicatePath.Hashable, FactIndex] = collections.OrderedDict()
-        self._factindexes = []
 
         # Validate the paths to be indexed
         allindexes = set([clean_path(p) for p in indexes])
-
+        factindexes = []
         for pth in allindexes:
             tmppath=path(pth)
             if hashable_path(tmppath.meta.dealiased) != hashable_path(tmppath):
@@ -297,28 +292,28 @@ class FactMap(object):
                                   "'{}'").format(tmppath, path(ptype)))
             tmpfi = FactIndex(tmppath)
             self._path2factindex[hashable_path(tmppath)] = tmpfi
-            self._factindexes.append(tmpfi)
-        self._factindexes = tuple(self._factindexes)
+            factindexes.append(tmpfi)
+        self._factindexes: Tuple[FactIndex, ...] = tuple(factindexes)
 
-    def add_facts(self, facts: Iterator[Predicate]) -> None:
+    def add_facts(self, facts: Iterable[_P]) -> None:
         for f in facts:
             self._factset.add(f)
             for fi in self._factindexes: fi.add(f)
 
-    def add_fact(self, fact: Predicate) -> None:
+    def add_fact(self, fact: _P) -> None:
         self._factset.add(fact)
         for fi in self._factindexes: fi.add(fact)
 
-    def discard(self,fact):
+    def discard(self,fact: _P) -> None:
         self.remove(fact,False)
 
-    def remove(self, fact: Predicate, raise_on_missing: bool=True) -> None:
+    def remove(self, fact: _P, raise_on_missing: bool=True) -> None:
         if raise_on_missing: self._factset.remove(fact)
         else: self._factset.discard(fact)
         for fi in self._factindexes:
             fi.remove(fact,raise_on_missing)
 
-    def pop(self) -> Predicate:
+    def pop(self) -> _P:
         if not self._factset: raise KeyError("Cannot pop() an empty set of facts")
         fact = next(iter(self._factset))
         self.remove(fact)
@@ -329,7 +324,7 @@ class FactMap(object):
         for fi in self._factindexes: fi.clear()
 
     @property
-    def predicate(self) -> Predicate:
+    def predicate(self) -> Type[_P]:
         return self._ptype
 
     @property
@@ -386,8 +381,8 @@ class FactMap(object):
             self.discard(f)
 
     def symmetric_difference_update(self, other: 'FactMap') -> None:
-        to_remove=OrderedSet()
-        to_add=OrderedSet()
+        to_remove=OrderedSet[_P]()
+        to_add=OrderedSet[_P]()
         for f in self._factset:
             if f in _fm_iterable(other): to_remove.add(f)
         for f in _fm_iterable(other):
@@ -395,7 +390,7 @@ class FactMap(object):
         for f in to_remove: self.discard(f)
         self.add_facts(to_add)
 
-    def copy(self) -> 'FactMap':
+    def copy(self) -> 'FactMap[_P]':
         nfm = FactMap(self.predicate, self._path2factindex.keys())
         nfm.add_facts(self.factset)
         return nfm

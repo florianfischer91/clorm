@@ -118,7 +118,7 @@ def _format_commented(fm: FactMap, out: io.StringIO) -> None:
     if pm.arity == 0:
         lines = [ "Unary predicate signature:", indent + pm.name ]
     else:
-        def build_signature(p: Predicate) -> str:
+        def build_signature(p: Type[Predicate]) -> str:
             args = []
             for pp in p:
                 field = pp.meta.field
