@@ -19,12 +19,10 @@ import collections.abc as cabc
 import enum
 import functools
 import sys
-import typing
 import re
 import uuid
-from build.lib.clorm.orm.query import ClauseBlock, ComparisonCallable, Placeholder
 
-from clorm.orm.types import ConstantStr, HeadList, HeadListReversed, TailList, TailListReversed
+from .types import ConstantStr, HeadList, HeadListReversed, TailList, TailListReversed
 
 from .noclingo import (Symbol, NoSymbol, Function, String, Number, SymbolType, SymbolMode,
                        NoSymbol, get_symbol_mode, clingo_to_noclingo, noclingo_to_clingo)
@@ -34,8 +32,11 @@ from .templating import (expand_template, PREDICATE_TEMPLATE,
                          NO_DEFAULTS_TEMPLATE, ASSIGN_DEFAULT_TEMPLATE,
                          ASSIGN_COMPLEX_TEMPLATE, PREDICATE_UNIFY_DOCSTRING)
 
-from typing import ( TYPE_CHECKING, Any, Callable, ClassVar, Dict, Iterable, Iterator, List, Literal, Optional, Sequence, Set, Tuple,
+from typing import ( TYPE_CHECKING, Any, Callable, ClassVar, Dict, Iterable, Iterator, List, Optional, Sequence, Set, Tuple,
                      Type, TypeVar, Union, overload, cast )
+
+if TYPE_CHECKING:
+    from .query import ComparisonCallable, Placeholder
 
 
 # copied from https://github.com/samuelcolvin/pydantic/blob/master/pydantic/typing.py
@@ -204,7 +205,7 @@ class Comparator(abc.ABC):
     def dealias(self) -> 'Comparator': pass
 
     @abc.abstractmethod
-    def make_callable(self, root_signature: Any) -> ComparisonCallable: pass
+    def make_callable(self, root_signature: Any) -> 'ComparisonCallable': pass
 
     @property
     @abc.abstractmethod
@@ -216,7 +217,7 @@ class Comparator(abc.ABC):
 
     @property
     @abc.abstractmethod
-    def placeholders(self) -> Set[Placeholder]: pass
+    def placeholders(self) -> Set['Placeholder']: pass
 
     @property
     @abc.abstractmethod
@@ -2820,10 +2821,15 @@ class Predicate(metaclass=_PredicateMeta):
     # will be overriden by metaclass
     sign: bool = field(IntegerField, default=True, kw_only=True) # type: ignore
 
-    if typing.TYPE_CHECKING:
+    if TYPE_CHECKING:
         # populated by the metaclass, defined here to help IDEs only
-        _meta: typing.ClassVar[PredicateDefn]
-        _field: typing.ClassVar[BaseField]
+        _meta: ClassVar[PredicateDefn]
+        _field: ClassVar[BaseField]
+        # Add type annotations for member functions that are generated dynamically
+        # when a Predicate sub-class is defined.
+        @classmethod
+        def _unify(cls: Type[_P], raw: AnySymbol) -> Optional[_P]:
+            ...
 
     #--------------------------------------------------------------------------
     #
@@ -2833,16 +2839,6 @@ class Predicate(metaclass=_PredicateMeta):
             raise TypeError(("Predicate/ComplexTerm must be sub-classed"))
         return super().__new__(cls)
 
-
-    # --------------------------------------------------------------------------
-    # Add type annotations for member functions that are generated dynamically
-    # when a Predicate sub-class is defined.
-    # --------------------------------------------------------------------------
-
-    if typing.TYPE_CHECKING:
-        @classmethod
-        def _unify(cls: Type[_P], raw: AnySymbol) -> Optional[_P]:
-            ...
 
     #--------------------------------------------------------------------------
     # Properties and functions for Predicate

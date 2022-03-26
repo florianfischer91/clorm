@@ -13,9 +13,6 @@ import enum
 from typing import (TYPE_CHECKING, Any, Callable, Dict, Generator, Iterable, Iterator, List,
                     Optional, Set, Tuple, Type, TypeVar, Union, cast, overload)
 
-from clorm.util.oset import OrderedSet
-
-from ..util import OrderedSet as FactSet
 from .core import *
 from .core import QCondition, PredicatePath, \
     kwargs_check_keys, trueall, falseall, notcontains
@@ -2777,7 +2774,7 @@ def make_chained_join_query(
 # ------------------------------------------------------------------------------
 
 def make_query(qp: QueryPlan,
-               factsets: Dict[Type[Predicate], OrderedSet],
+               factsets: Dict[Type[Predicate], FactSet],
                factindexes: Dict[Any, Any]) -> Callable[[], Iterator[Any]]:
     if qp.placeholders:
         raise ValueError(("Cannot execute an ungrounded query. Missing values "
