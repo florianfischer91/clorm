@@ -14,14 +14,13 @@ import itertools
 import sys
 
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Set, Tuple, \
-    Type, TypeVar, Union, no_type_check, overload
+    Type, TypeVar, Union, cast, no_type_check, overload
 import clingo
 import clingo.ast as clast
 from .core import *
-from .noclingo import SymbolMode, SymbolType, Function, Number, String
+from .noclingo import SymbolMode, Function, Number, String
 from .factbase import *
-from .core import get_field_definition, PredicatePath, kwargs_check_keys, \
-    get_symbol_mode
+from .core import PredicatePath, get_symbol_mode
 
 if sys.version_info < (3, 8):
     from typing_extensions import Literal
@@ -97,7 +96,7 @@ class Unifier(object):
                 sym, self._predicates)
         return None
 
-    def unify(self,symbols: List[clingo.Symbol],*,factbase: FactBase = None, raise_nomatch: bool = False) -> FactBase:
+    def unify(self,symbols: List[clingo.Symbol],*,factbase: Optional[FactBase] = None, raise_nomatch: bool = False) -> FactBase:
         fb=FactBase() if factbase is None else factbase
         for sym in symbols:
             matched = False
@@ -327,7 +326,7 @@ control_add_facts.__doc__ = '''Assert a collection of facts to the solver
 def symbolic_atoms_to_facts(symbolic_atoms: clingo.SymbolicAtoms,
                             unifier: Iterable[Type[Predicate]], *,
                             facts_only: bool = False,
-                            factbase: FactBase = None) -> FactBase:
+                            factbase: Optional[FactBase] = None) -> FactBase:
     '''Extract `clorm.FactBase` from `clingo.SymbolicAtoms`
 
     A `clingo.SymbolicAtoms` object is returned from the
@@ -446,8 +445,9 @@ class NonFactVisitor:
         '''
         if (ast.ast_type in NonFactVisitor.ERROR_AST or
             (ast.ast_type == ASTType.Function and ast.external)):
-            line = ast.location.begin.line
-            column = ast.location.begin.column
+            from clingo.ast import Location
+            line = cast(Location, ast.location).begin.line
+            column = cast(Location, ast.location).begin.column
             exc = FactParserError(message=f"Non-fact '{self._stmt}'",
                                   line=line, column=column)
             raise ClingoParserWrapperError(exc)
@@ -460,7 +460,7 @@ class NonFactVisitor:
             if isinstance(subast, AST):
                 self._visit(subast)
 
-def parse_fact_string(aspstr: str, unifier: Iterable[Type[Predicate]], *, factbase: FactBase = None,
+def parse_fact_string(aspstr: str, unifier: Iterable[Type[Predicate]], *, factbase: Optional[FactBase] = None,
                       raise_nomatch: bool = False, raise_nonfact: bool = False) -> FactBase:
     '''Parse a string of ASP facts into a FactBase
 
@@ -513,7 +513,7 @@ def parse_fact_string(aspstr: str, unifier: Iterable[Type[Predicate]], *, factba
 
 
 
-def parse_fact_files(files: Sequence[str], unifier: Iterable[Type[Predicate]], *, factbase: FactBase = None,
+def parse_fact_files(files: Sequence[str], unifier: Iterable[Type[Predicate]], *, factbase: Optional[FactBase] = None,
                      raise_nomatch: bool = False, raise_nonfact: bool = False) -> FactBase:
     '''Parse the facts from a list of files into a FactBase
 
@@ -566,7 +566,7 @@ def parse_fact_files(files: Sequence[str], unifier: Iterable[Type[Predicate]], *
 # A pure-python fact parser that uses Lark
 #------------------------------------------------------------------------------
 
-from .lark_fact_parser import Lark_StandAlone, Transformer, VisitError, LarkError, UnexpectedInput
+from .lark_fact_parser import Lark_StandAlone, Transformer, LarkError, UnexpectedInput
 
 class _END:
     pass
@@ -606,10 +606,10 @@ class LarkFactTransformer(Transformer):
         return v
 
 def lark_parse_fact_string(aspstr: str, unifier: Iterable[Type[Predicate]], *,
-                           factbase: FactBase = None, raise_nomatch: bool = False) -> FactBase:
+                           factbase: Optional[FactBase] = None, raise_nomatch: bool = False) -> FactBase:
     try:
         fact_parser = Lark_StandAlone(transformer=LarkFactTransformer())
-        symbols = fact_parser.parse(aspstr)
+        symbols =cast(List[clingo.Symbol], fact_parser.parse(aspstr))
         un = Unifier(unifier)
         return un.unify(symbols, factbase=factbase, raise_nomatch=raise_nomatch)
     except UnexpectedInput as e:
@@ -618,7 +618,7 @@ def lark_parse_fact_string(aspstr: str, unifier: Iterable[Type[Predicate]], *,
         raise FactParserError(str(e), line=0, column=0)
 
 def lark_parse_fact_files(files: Iterable[str], unifier: Iterable[Type[Predicate]], *,
-                          factbase: FactBase = None, raise_nomatch: bool = False) -> FactBase:
+                          factbase: Optional[FactBase] = None, raise_nomatch: bool = False) -> FactBase:
     fb = FactBase() if factbase is None else factbase
     for fn in files:
         with open(fn, 'r') as file:
