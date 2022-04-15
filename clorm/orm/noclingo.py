@@ -453,7 +453,7 @@ else:
                 _tuple_ = NoTuple_
                 _function = NoFunction
 
-        def Function(name: str, arguments: Sequence[Symbol] = [], positive: bool = True) -> Symbol:
+        def Function(name: Union[str], arguments: Sequence[Symbol] = [], positive: bool = True) -> Symbol:
             return _function(name, arguments, positive)
 
         def String(string: str) -> Symbol:

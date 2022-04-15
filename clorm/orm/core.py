@@ -1211,14 +1211,12 @@ class BaseField(object, metaclass=_AbstractBaseFieldMeta):
             raise TypeError("Invalid default value \"{}\" for {}".format(
                 default, type(self).__name__))
 
-    @staticmethod
-    @abc.abstractmethod
+    @abc.abstractstaticmethod
     def cltopy(v):
         """Called when translating data from Clingo to Python"""
         raise NotImplementedError("BaseField.cltopy() must be overriden")
 
-    @staticmethod
-    @abc.abstractmethod
+    @abc.abstractstaticmethod
     def pytocl(v):
         """Called when translating data from Python to Clingo"""
         raise NotImplementedError("BaseField.pytocl() must be overriden")
@@ -2178,7 +2176,24 @@ def _magic_name(name):
 # predicate but use a different identifier.
 # -----------------------------------------------------------------------------
 
-PathIdentity = collections.namedtuple("PathIdentity", "predicate name")
+class PathIdentity:
+    __slots__ = "predicate", "name", "_tuple"
+    def __init__(self, predicate, name):
+        self.predicate = predicate
+        self.name = name
+
+        self._tuple = (predicate, name)
+
+    def __getitem__(self, item: Any) -> Any:
+        return self._tuple[item]
+
+    def __eq__(self, other: Any) -> bool:
+        if isinstance(other, PathIdentity):
+            return tuple.__eq__(self._tuple, other._tuple)
+        return NotImplemented
+
+    def __hash__(self) -> int:
+        return hash(self._tuple)
 
 #--------------------------------------------------------------------------
 # One PredicateDefn object for each Predicate sub-class
@@ -2793,7 +2808,7 @@ class Predicate(object, metaclass=_PredicateMeta):
     #
     #--------------------------------------------------------------------------
     def __new__(cls, *args, **kwargs):
-        if cls == __class__:
+        if cls.__name__ == Predicate.__name__:
             raise TypeError(("Predicate/ComplexTerm must be sub-classed"))
         return super().__new__(cls)
 

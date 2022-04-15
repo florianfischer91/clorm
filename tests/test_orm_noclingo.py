@@ -18,6 +18,7 @@ from clorm.orm.noclingo import ( SymbolType, Symbol, Function, String, Number,
                                  get_Infimum, get_Supremum, clingo_to_noclingo,
                                  noclingo_to_clingo, SymbolMode,
                                  get_symbol_mode, set_symbol_mode )
+from clorm import compiled as clorm_compiled
 
 clingo_version = clingo.__version__
 
@@ -138,7 +139,11 @@ class NoClingoTestCase(unittest.TestCase):
         with self.assertRaises(TypeError) as ctx:
             self.assertEqual(noclingo.NoTuple_(), noclingo.NoTuple_([]))
 
-        check_errmsg("NoTuple_() missing 1 required positional argument: 'arguments'",ctx)
+        if clorm_compiled:
+            err_msg = "NoTuple_() takes exactly one argument"
+        else:
+            err_msg = "NoTuple_() missing 1 required positional argument: 'arguments'"    
+        check_errmsg(err_msg,ctx)
 
         c_empty_tuple = clingo.Tuple_([])
         nc_empty_tuple = noclingo.NoTuple_([])
@@ -264,10 +269,11 @@ class NoClingoTestCase(unittest.TestCase):
                           _get_error(noclingo.NoNumber, "a"))
         _assertEqualError(_get_error(clingo.Number, ["a"]),
                           _get_error(noclingo.NoNumber, ["a"]))
-        _assertEqualError(_get_error(clingo.String, 1),
-                          _get_error(noclingo.String, 1))
-        _assertEqualError(_get_error(clingo.String, [1]),
-                          _get_error(noclingo.String, [1]))
+        if not clorm_compiled:
+            _assertEqualError(_get_error(clingo.String, 1),
+                            _get_error(noclingo.String, 1))
+            _assertEqualError(_get_error(clingo.String, [1]),
+                            _get_error(noclingo.String, [1]))
 
 
     # NOTE: I think in clingo 5.5 the comparison operators correctly return

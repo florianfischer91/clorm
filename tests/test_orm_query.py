@@ -44,6 +44,8 @@ from clorm.orm.query import PositionalPlaceholder, NamedPlaceholder, \
     make_chained_join_query, make_query, \
     InQuerySorter, QueryExecutor, MembershipSeq
 
+from clorm import compiled as clorm_compiled
+
 ###### NOTE: The QueryOutput tests need to be turned into QueryExecutor
 ###### tests. We can then delete QueryOutput which is not being used for
 ###### anything.
@@ -99,11 +101,13 @@ class PlaceholderTestCase(unittest.TestCase):
 
         with self.assertRaises(TypeError) as ctx:
             ph = NamedPlaceholder("foo")
-        check_errmsg_contains("__init__() takes 1 positional", ctx)
+        err_msg = "__init__() takes {}1 positional".format("exactly " if clorm_compiled else "")
+        check_errmsg_contains(err_msg, ctx)
 
         with self.assertRaises(TypeError) as ctx:
             ph = NamedPlaceholder("foo","bar")
-        check_errmsg_contains("__init__() takes 1 positional", ctx)
+        err_msg = "__init__() takes {}1 positional".format("exactly " if clorm_compiled else "")
+        check_errmsg_contains(err_msg, ctx)
 
         self.assertFalse(ph1 == 1)
         self.assertFalse(ph1 == 'a')
@@ -120,7 +124,8 @@ class PlaceholderTestCase(unittest.TestCase):
 
         with self.assertRaises(TypeError) as ctx:
             ph = PositionalPlaceholder(0)
-        check_errmsg_contains("__init__() takes 1 positional", ctx)
+        err_msg = "__init__() takes {}1 positional".format("exactly " if clorm_compiled else "")
+        check_errmsg_contains(err_msg, ctx)
 
         self.assertFalse(1 == ph2)
         self.assertTrue(1 != ph2)
@@ -762,7 +767,8 @@ class ComparatorTestCase(unittest.TestCase):
         # Bad calls to the callable
         with self.assertRaises(TypeError) as ctx:
             sat1(g1,f1)
-        check_errmsg_contains("__call__() takes 2", ctx)
+        err_msg = "__call__() takes {}2".format("exactly " if clorm_compiled else "")
+        check_errmsg_contains(err_msg, ctx)
 
         # NOTE: Now using the attrgetter which is more liberal and doesn't check
         # for the correct predicate type. So this error is no longer raised.
