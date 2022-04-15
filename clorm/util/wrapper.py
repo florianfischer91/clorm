@@ -81,7 +81,7 @@ class WrapperMetaClass(type):
 
         if "_wrapped_cls" in dct:
             raise TypeError(("ProxyMetaClass cannot proxy a class with a "
-                             "\"_wrapped_cls\" attribute: {}").format(PrClass))
+                             "\"_wrapped_cls\" attribute: {}").format(Wrapped))
         dct["_wrapped_cls"] = Wrapped
 
         # Mirror the attributes of the proxied class
