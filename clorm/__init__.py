@@ -1,3 +1,13 @@
+try:
+    import cython
+except ImportError:
+    compiled: bool = False
+else:
+    try:
+        compiled = cython.compiled
+    except AttributeError:
+        compiled = False
+
 from .orm import *
 
 __version__ = "1.4.0"
