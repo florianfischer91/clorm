@@ -89,7 +89,7 @@ def run_count(q):
     print("Query returned: {} records".format(q.count()))
 
 def run_print(q):
-    for name,sales in q.group_by().select(Sale).all():
+    for name,sales in q.group_by(Customer.name).select(Sale).all():
         print("Customer: {} => {}".format(name,
                                           len(sorted(list(sales),key=lambda s: s.sid ))))
 
@@ -120,7 +120,7 @@ def run_fact_querying(nc,spc):
         g_facts = create_facts(nc,spc)
 
     pr=Profiler("Timing for fact creation and querying")
-    msg1 = "Intstantiating {} new fact instances".format(nc*spc)
+    msg1 = "Instantiating {} new fact instances".format(nc*spc)
     pr(msg1, go)
     fb1 = pr("Adding facts to non-indexed FactBase", lambda : make_fb(g_facts,False))
     fb2 = pr("Adding facts to indexed FactBase", lambda : make_fb(g_facts,True))

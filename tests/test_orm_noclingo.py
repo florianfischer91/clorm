@@ -440,6 +440,7 @@ class NoClingoDisabledTestCase(unittest.TestCase):
     def tearDown(self):
         pass
 
+    @unittest.skipIf(clorm_compiled, "reloading in cython has no affect")
     def test_noclingo_switch_disabled(self):
         os.environ["CLORM_NOCLINGO"] = "False"
         import clorm.orm.noclingo
