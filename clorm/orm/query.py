@@ -12,7 +12,7 @@ import functools
 import itertools
 import inspect
 import enum
-from typing import Any, Generator
+from typing import TYPE_CHECKING, Any, Callable, Generator, List, Optional, Tuple, Type
 
 from ..util import OrderedSet as FactSet
 from ..util.tools import all_equal
@@ -2225,6 +2225,20 @@ class QuerySpec(object):
     allowed = [ "roots", "join", "where", "order_by", "ordered",
                 "group_by", "tuple", "distinct", "bind", "select",
                 "heuristic", "joh" ]
+
+    if TYPE_CHECKING:
+        roots: Tuple[Type[Predicate], ...] = tuple([])
+        join: List[StandardComparator] = []
+        where: Optional[ClauseBlock] = None
+        order_by: Optional[OrderByBlock] = None
+        group_by: Optional[OrderByBlock] = None
+        bind: bool = False
+        tuple: bool = False
+        distinct: bool = False
+        heuristic: bool = False
+        joh: Callable[[Any, "QuerySpec"], Any]
+        ordered: bool = False
+        select: Optional[Tuple[Type[Predicate], ...]] = None
 
     def __init__(self,**kwargs):
         for k,v in kwargs.items():
