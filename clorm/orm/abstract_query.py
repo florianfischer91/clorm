@@ -1,5 +1,5 @@
 import abc
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Generator
 
 if TYPE_CHECKING:
     from .query import QuerySpec
@@ -447,7 +447,7 @@ class Query(abc.ABC):
     # Select to display all the output of the query
     # --------------------------------------------------------------------------
     @abc.abstractmethod
-    def all(self):
+    def all(self) -> Generator[Any, None, None]:
         """Returns a generator that iteratively executes the query.
 
         Note. This call doesn't execute the query itself. The query is executed
