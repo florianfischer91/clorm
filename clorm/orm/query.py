@@ -5,6 +5,7 @@
 import abc
 import collections
 import enum
+from functools import partial
 import inspect
 import io
 import itertools
@@ -38,7 +39,8 @@ __all__ = [
 #------------------------------------------------------------------------------
 # Global
 #------------------------------------------------------------------------------
-
+DictFactSets = Dict[Type[Predicate], FactSet]
+DictFactIndexes = Dict[PredicatePath.Hashable, FactIndex]
 
 #------------------------------------------------------------------------------
 # Defining and manipulating conditional elements
@@ -1964,11 +1966,11 @@ class JoinQueryPlan:
         return self._prejoinobb
 
     @property
-    def postjoin_clauses(self):
+    def postjoin_clauses(self) -> Optional[ClauseBlock]:
         return self._postjoincb
 
     @property
-    def postjoin_orderbys(self):
+    def postjoin_orderbys(self) -> Optional[OrderByBlock]:
         return self._postjoinobb
 
     @property
@@ -2530,7 +2532,8 @@ class InQuerySorter:
         self._sorter = tuple(reversed(self._sorter))
 
     # List in-place sorting
-    def listsort(self, inlist):
+    def listsort(self, inlist: List) -> None:
+        """inplace sorting"""
         for kf, reverse in self._sorter:
             inlist.sort(key=kf,reverse=reverse)
 
@@ -2547,7 +2550,11 @@ class InQuerySorter:
 # - factindexes - a dictionary mapping a hashable_path to a factindex
 # ------------------------------------------------------------------------------
 
-def make_first_prejoin_query(jqp, factsets, factindexes):
+def make_first_prejoin_query(
+    jqp: JoinQueryPlan,
+    factsets: DictFactSets,
+    factindexes: DictFactIndexes
+) -> Callable[[], Generator[Any, None, None]]:
     factset = factsets.get(jqp.root.meta.predicate, FactSet())
 
     pjk = jqp.prejoin_key_clause
@@ -2566,15 +2573,13 @@ def make_first_prejoin_query(jqp, factsets, factindexes):
             kpath,op,key = keyable
             factindex_sc.append((factindexes[kpath],op,key))
 
+    partial_filter = partial(lambda x: x)
+    if prejcb:
+        partial_filter = partial(filter, prejcb.make_callable([jqp.root.meta.dealiased]))
+
     def unsorted_query():
-        if prejcb:
-            cc = prejcb.make_callable([jqp.root.meta.dealiased])
-        else:
-            cc = lambda _ : True
-
         gen = factset if not pjk else (f for fi,op,key in factindex_sc for f in fi.find(op,key))
-
-        yield from ((f,) for f in gen if cc((f,)))
+        yield from partial_filter((f,) for f in gen)
 
     return unsorted_query
 
@@ -2586,8 +2591,8 @@ def make_first_prejoin_query(jqp, factsets, factindexes):
 
 def make_first_join_query(
     jqp: JoinQueryPlan,
-    factsets: Dict[Type[Predicate], FactSet],
-    factindexes: Dict[PredicatePath.Hashable, FactIndex]
+    factsets: DictFactSets,
+    factindexes: DictFactIndexes
 ) -> Callable[[], Iterator[Any]]:
 
     if jqp.input_signature:
@@ -2598,13 +2603,14 @@ def make_first_join_query(
                           "a prejoin and join orderby sets for the first sub-query"))
 
     base_query=make_first_prejoin_query(jqp,factsets, factindexes)
-    iqs=None
-    if jqp.prejoin_orderbys:
-        iqs = InQuerySorter(jqp.prejoin_orderbys,(jqp.root,))
-    elif jqp.postjoin_orderbys:
-        iqs = InQuerySorter(jqp.postjoin_orderbys,(jqp.root,))
 
-    return (lambda: iqs.sorted(base_query())) if iqs else base_query
+    orderbys = jqp.prejoin_orderbys or jqp.postjoin_orderbys
+    iqs = InQuerySorter(orderbys, (jqp.root,)) if orderbys else None
+
+    def wrap():
+        return iter(iqs.sorted(base_query())) if iqs else base_query()
+
+    return wrap
 
 # ------------------------------------------------------------------------------
 # Returns a function that takes no arguments and returns a populated data
@@ -2699,6 +2705,13 @@ class QuerySource:
             fi.add(f)
         return fi
 
+    def create_source(self):
+        if self._pjc_check:
+            return list(self.query_pjc(self._pjc_check))
+        if self._factindex_sc:
+            return list(self.query_pjk())
+        return None
+
     # If there is either a pjk or pjc then we need to create a temporary source
     # (using a FactIndex if there is a join key or a list otherwise). If there
     # is no pjk or pjc but there is a key then use an existing FactIndex if
@@ -2707,13 +2720,10 @@ class QuerySource:
         if self._jk:
             return self.execute_jk()
 
-        source = None
         if not self._pjc_check and not self._factindex_sc and not self._pjob:
             return self._factset
-        if self._pjc_check:
-            source = list(self.query_pjc(self._pjc_check))
-        elif self._factindex_sc:
-            source = list(self.query_pjk())
+
+        source = self.create_source()
         if source and not self._pjob:
             return source
 
@@ -2739,9 +2749,9 @@ class QuerySource:
 
 def make_chained_join_query(
     jqp: JoinQueryPlan,
-    inquery: Callable[[], Generator[Any, None, None]],
-    factsets: Dict[Type[Predicate], FactSet],
-    factindexes: Dict[PredicatePath.Hashable, FactIndex]
+    inquery: Callable[[], Iterator[Any]],
+    factsets: DictFactSets,
+    factindexes: DictFactIndexes
 ) -> Callable[[], Iterator[Any]]:
 
     if not jqp.input_signature:
@@ -2753,18 +2763,16 @@ def make_chained_join_query(
     jc   = jqp.postjoin_clauses
     postj_order  = jqp.postjoin_orderbys
 
-    prej_iqs = None
-    if jk and prej_order:
-        prej_iqs = InQuerySorter(prej_order)
+    prej_iqs = InQuerySorter(prej_order) if jk and prej_order else None
 
     # query_source is a function that returns a FactSet, FactIndex, or list
     query_source = make_prejoin_query_source(jqp, factsets, factindexes)
 
+    insig = [*jqp.input_signature, jqp.root]
     # Setup any join clauses
+    partial_filter = partial(lambda x: x)
     if jc:
-        jc_check = jc.make_callable(list(jqp.input_signature) + [jqp.root])
-    else:
-        jc_check = lambda _: True
+        partial_filter = partial(filter,jc.make_callable(insig))
 
     def query_jk():
         assert jk
@@ -2773,35 +2781,26 @@ def make_chained_join_query(
             jqp.input_signature,(jk.args[1],))
         fi = query_source()
         assert isinstance(fi, FactIndex)
+        find = partial(fi.find, op=operator_)
         for intuple in inquery():
-            v, = align_query_input(intuple)
-            result = list(fi.find(operator_,v))
-            if prej_order:
-                assert prej_iqs
+            result = find(val=align_query_input(intuple)[0])
+            if prej_iqs:
+                result = [*result] # create list from generator
                 prej_iqs.listsort(result)
-            for f in result:
-                out = tuple(intuple + (f,))
-                if jc_check(out):
-                    yield out
+            yield from partial_filter((intuple + (f,) for f in result))
 
     def query_no_jk():
         source = query_source()
-        for intuple in inquery():
-            for f in source:
-                out = tuple(intuple + (f,))
-                if jc_check(out):
-                    yield out
+        yield from partial_filter((intuple +(f,) for f in source for intuple in inquery()))
 
 
     unsorted_query=query_jk if jk else query_no_jk
-    if not postj_order:
-        return unsorted_query
+    post_jiqs = InQuerySorter(postj_order,insig) if postj_order else None
 
-    jiqs = InQuerySorter(postj_order,list(jqp.input_signature) + [jqp.root])
-    def sorted_query():
-        return iter(jiqs.sorted(unsorted_query()))
+    def wrap():
+        return iter(post_jiqs.sorted(unsorted_query())) if post_jiqs else unsorted_query()
 
-    return sorted_query
+    return wrap
 
 #------------------------------------------------------------------------------
 # Makes a query given a ground QueryPlan and the underlying data. The returned
@@ -2810,8 +2809,8 @@ def make_chained_join_query(
 
 def make_query(
     qp: QueryPlan,
-    factsets: Dict[Type[Predicate], FactSet],
-    factindexes: Dict[Any, Any]
+    factsets: DictFactSets,
+    factindexes: DictFactIndexes
 ) -> Callable[[], Iterator[Any]]:
     if qp.placeholders:
         raise ValueError(("Cannot execute an ungrounded query. Missing values "
