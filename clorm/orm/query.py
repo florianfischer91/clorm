@@ -581,7 +581,7 @@ class StandardComparator(Comparator):
                               "the swap operation"))
         return StandardComparator(spec.swapop, reversed(self._args))
 
-    def keyable(self, indexes):
+    def keyable(self, indexes: Dict) -> Optional[Tuple[Any, Any, Any]]:
         spec = StandardComparator.operators[self._operator]
         return spec.keyable(self, indexes)
 
@@ -1193,7 +1193,7 @@ def where_expression_to_cnf(qcond):
 
 class Clause:
 
-    def __init__(self, comparators: Iterable) -> None:
+    def __init__(self, comparators: Iterable[StandardComparator]) -> None:
         if not comparators:
             raise ValueError("Empty list of comparison expressions")
         non_comp = next((comp for comp in comparators if not isinstance(comp, Comparator)), None)
@@ -1948,19 +1948,19 @@ class JoinQueryPlan:
         return self._indexes
 
     @property
-    def prejoin_key_clause(self):
+    def prejoin_key_clause(self) -> Optional[Clause]:
         return self._prejoincl
 
     @property
-    def join_key(self):
+    def join_key(self) -> Optional[StandardComparator]:
         return self._joinsc
 
     @property
-    def prejoin_clauses(self):
+    def prejoin_clauses(self) -> Optional[ClauseBlock]:
         return self._prejoincb
 
     @property
-    def prejoin_orderbys(self):
+    def prejoin_orderbys(self) -> Optional[OrderByBlock]:
         return self._prejoinobb
 
     @property
@@ -2624,96 +2624,112 @@ def make_prejoin_query_source(
 ) -> Callable[[], Union[FactIndex, FactSet, List[Any]]]:
     pjk  = jqp.prejoin_key_clause
     pjc  = jqp.prejoin_clauses
-    pjob = jqp.prejoin_orderbys
     jk   = jqp.join_key
     predicate = jqp.root.meta.predicate
-    factset = factsets.get(jqp.root.meta.predicate, FactSet())
 
     # If there is a prejoin key clause then every comparator within it must
     # refer to exactly one index
-    if pjk:
-        factindex_sc = []
-        for sc in pjk:
-            keyable = sc.keyable(factindexes)
-            if keyable is None:
-                raise ValueError((f"Internal error: prejoin key clause '{pjk}' "
-                                  f"is invalid for JoinQueryPlan {jqp}"))
-            kpath,op,key = keyable
-            factindex_sc.append((factindexes[kpath],op,key))
+    factindex_sc = []
+    scs = pjk.__iter__() if pjk else []
+    for sc in scs:
+        keyable = sc.keyable(factindexes)
+        if keyable is None:
+            raise ValueError((f"Internal error: prejoin key clause '{pjk}' "
+                                f"is invalid for JoinQueryPlan {jqp}"))
+        factindex_sc.append((factindexes[keyable[0]],keyable[1],keyable[2]))
+
+    pjc_check = None
+    if pjc:
+        dealiased = pjc.dealias()
+        if len(dealiased.roots) != 1 and dealiased.roots[0].meta.predicate != predicate:
+            raise ValueError((f"Internal error: prejoin clauses '{dealiased}' is invalid "
+                              f"for JoinQueryPlan {jqp}"))
+        pjc_check = dealiased.make_callable([dealiased.roots[0]])
+
+    if jk and jk.args[0].meta.predicate != predicate:
+        raise ValueError((f"Internal error: join key '{jk}' is invalid "
+                              f"for JoinQueryPlan {jqp}"))
+
+    return QuerySource(factindexes, factindex_sc, factsets.get(predicate, FactSet()),
+                       jk, pjc_check, jqp.prejoin_orderbys)
+
+
+class QuerySource:
+    def __init__(
+        self,
+        factindexes: Dict[PredicatePath.Hashable, FactIndex],
+        factindex_sc: List[Tuple[FactIndex, Any, Any]],
+        factset: FactSet,
+        jk: Optional[StandardComparator],
+        pjc_check: Optional[Callable[..., bool]],
+        pjob: Optional[OrderByBlock]
+    ) -> None:
+        self._factindexes = factindexes
+        self._factindex_sc = factindex_sc
+        self._factset= factset
+        self._jk = jk
+        self._pjc_check = pjc_check
+        self._pjiqs = InQuerySorter(pjob) if pjob else None
+        self._pjob = pjob
 
     # A prejoin_key_clause query uses the factindex
-    def query_pjk():
-        yield from (f for fi,op,key in factindex_sc for f in fi.find(op,key))
-
-    # If there is a set of prejoin clauses
-    if pjc:
-        pjc = pjc.dealias()
-        pjc_root = pjc.roots[0]
-        if len(pjc.roots) != 1 and pjc_root.meta.predicate != predicate:
-            raise ValueError((f"Internal error: prejoin clauses '{pjc}' is invalid "
-                              f"for JoinQueryPlan {jqp}"))
-        pjc_check = pjc.make_callable([pjc_root])
+    def query_pjk(self):
+        yield from (f for fi,op,key in self._factindex_sc for f in fi.find(op,key))
 
     # prejoin_clauses query uses the prejoin_key_clause query or the underlying factset
-    def query_pjc():
-        iter_ = query_pjk() if pjk else factset
-        yield from (f for f in iter_ if pjc_check((f,)))
+    def query_pjc(self, check):
+        iter_ = self.query_pjk() if self._factindex_sc else self._factset
+        yield from (f for f in iter_ if check((f,)))
 
-    # If there is a join key
-    if jk:
-        jk_key_path = hashable_path(jk.args[0].meta.dealiased)
-        if jk.args[0].meta.predicate != predicate:
-            raise ValueError((f"Internal error: join key '{jk}' is invalid "
-                              f"for JoinQueryPlan {jqp}"))
+    def execute_jk(self):
+        assert self._jk
+        jk_key_path = hashable_path(self._jk.args[0].meta.dealiased)
+        if self._pjc_check:
+            iter_ = self.query_pjc(self._pjc_check)
+        elif self._factindex_sc:
+            iter_ = self.query_pjk()
+        else:
+            hpath = hashable_path(jk_key_path)
+            if hpath in self._factindexes:
+                return self._factindexes[hpath]
+            iter_ = self._factset
 
-    pjiqs = InQuerySorter(pjob) if pjob else None
+        fi = FactIndex(path(jk_key_path))
+        for f in iter_:
+            fi.add(f)
+        return fi
 
     # If there is either a pjk or pjc then we need to create a temporary source
     # (using a FactIndex if there is a join key or a list otherwise). If there
     # is no pjk or pjc but there is a key then use an existing FactIndex if
     # there is one or create it.
-    def query_source() -> Union[FactIndex, FactSet, List[Any]]:
-        if jk:
-            if pjc:
-                iter_ = query_pjc()
-            elif pjk:
-                iter_ = query_pjk()
-            else:
-                hpath = hashable_path(jk_key_path)
-                if hpath in factindexes:
-                    return factindexes[hpath]
-                iter_ = factset
-
-            fi = FactIndex(path(jk_key_path))
-            for f in iter_:
-                fi.add(f)
-            return fi
+    def __call__(self):
+        if self._jk:
+            return self.execute_jk()
 
         source = None
-        if not pjc and not pjk and not pjob:
-            return factset
-        if pjc:
-            source = list(query_pjc())
-        elif pjk:
-            source = list(query_pjk())
-        if source and not pjob:
+        if not self._pjc_check and not self._factindex_sc and not self._pjob:
+            return self._factset
+        if self._pjc_check:
+            source = list(self.query_pjc(self._pjc_check))
+        elif self._factindex_sc:
+            source = list(self.query_pjk())
+        if source and not self._pjob:
             return source
 
-        if not source and pjob:
-            if len(pjob) == 1:
-                pjo = pjob[0]
-                hpath = hashable_path(pjo.path)
-                if hpath in factindexes:
-                    fi = factindexes[hpath]
-                    return fi if pjo.asc else list(reversed(fi))
-        assert pjiqs
+        if not source and self._pjob and len(self._pjob) == 1:
+            pjo = self._pjob[0]
+            hpath = hashable_path(pjo.path)
+            if hpath in self._factindexes:
+                fi = self._factindexes[hpath]
+                return fi if pjo.asc else list(reversed(fi))
+
         if source is None:
-            source = factset
+            source = self._factset
 
         # If there is only one sort order use attrgetter
-        return pjiqs.sorted(source)
+        return self._pjiqs.sorted(source)
 
-    return query_source
 
 # ------------------------------------------------------------------------------
 #
